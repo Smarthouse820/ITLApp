@@ -1404,6 +1404,16 @@ function App() {
     saveProgram({ hydrationLogs: newLogs });
   }
   const ozLogged = HYDRATION.filter(function (hy) { return hToday[hy.id]; }).reduce(function (a, hy) { return a + hy.amount; }, 0);
+  const hydrationHistory = [];
+  for (let i = 6; i >= 0; i--) {
+    const key = dateKeyDaysAgo(i);
+    const dayLog = prog.hydrationLogs[key];
+    if (dayLog && Object.keys(dayLog).length > 0) {
+      const checkedCount = HYDRATION.filter(function (hy) { return dayLog[hy.id]; }).length;
+      const ozThatDay = HYDRATION.filter(function (hy) { return dayLog[hy.id]; }).reduce(function (a, hy) { return a + hy.amount; }, 0);
+      hydrationHistory.push({ date: key, checkedCount: checkedCount, oz: ozThatDay, hitGoal: ozThatDay >= HYDRATION_TOTAL });
+    }
+  }
 
   const SLEEP_DEFAULT = { bedtime: "18:30", wake: "01:40", quality: null };
   const sleepToday = Object.assign({}, SLEEP_DEFAULT, prog.sleepLogs[todayKey()] || {});
@@ -1604,7 +1614,7 @@ function App() {
               selectedDate: nutritionSelectedDate, isToday: nutritionIsToday,
             }),
             tab === "hydration" && h(HydrationTab, {
-              hToday: hToday, toggleHydration: toggleHydration, ozLogged: ozLogged,
+              hToday: hToday, toggleHydration: toggleHydration, ozLogged: ozLogged, hydrationHistory: hydrationHistory,
               sleepToday: sleepToday, updateSleep: updateSleep, sleepHistory: sleepHistory,
             }),
             tab === "milestones" && h(MilestonesTab, {
@@ -2363,6 +2373,17 @@ function HydrationTab(props) {
           )
         );
       })
+    ),
+    props.hydrationHistory.length > 0 && h("div", { style: { marginTop: 20, marginBottom: 20 } },
+      h("div", { className: "food-cat-title" }, "Past 7 Days"),
+      h("div", { className: "history-list" },
+        props.hydrationHistory.slice().reverse().map(function (entry) {
+          return h("div", { key: entry.date, className: "history-row" },
+            h("span", { className: "history-week" }, entry.date + (entry.hitGoal ? " ✓" : "")),
+            h("span", { className: "history-sets" }, entry.checkedCount + "/" + HYDRATION.length + " checkpoints · " + entry.oz + "oz / " + HYDRATION_TOTAL + "oz")
+          );
+        })
+      )
     ),
     h(SleepSection, { sleepToday: props.sleepToday, updateSleep: props.updateSleep, sleepHistory: props.sleepHistory })
   );
