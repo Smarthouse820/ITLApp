@@ -927,11 +927,20 @@ const DIFFICULTIES = [
   { id: "hard", label: "Too Difficult", cls: "hard" },
 ];
 
-function todayKey() { return new Date().toISOString().slice(0, 10); }
+// Formats a Date as YYYY-MM-DD using LOCAL calendar date/time — not toISOString(), which converts
+// to UTC first and can silently roll over to the "wrong" day for anyone west of UTC (e.g., in US
+// timezones, UTC crosses midnight in the evening, hours before the local clock does).
+function localDateKey(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return y + "-" + m + "-" + day;
+}
+function todayKey() { return localDateKey(new Date()); }
 function dateKeyDaysAgo(n) {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return localDateKey(d);
 }
 function todayDayIdx() {
   const day = new Date().getDay(); // 0=Sun,1=Mon,...,6=Sat
@@ -941,13 +950,13 @@ function mondayOfWeekOffset(offset) {
   const thisMonday = mondayKeyForDate(new Date());
   const d = new Date(thisMonday + "T00:00:00");
   d.setDate(d.getDate() - offset * 7);
-  return d.toISOString().slice(0, 10);
+  return localDateKey(d);
 }
 function dateKeyForOffsetAndDayIdx(offset, dayIdx) {
   const monday = mondayOfWeekOffset(offset);
   const d = new Date(monday + "T00:00:00");
   d.setDate(d.getDate() + dayIdx);
-  return d.toISOString().slice(0, 10);
+  return localDateKey(d);
 }
 // Returns the date key (YYYY-MM-DD) for the Monday of the calendar week containing the given Date,
 // so nutrition/grocery rotation can advance on real Sunday→Monday boundaries, independent of
@@ -957,7 +966,7 @@ function mondayKeyForDate(d) {
   const diffToMonday = day === 0 ? -6 : 1 - day;
   const monday = new Date(d);
   monday.setDate(d.getDate() + diffToMonday);
-  return monday.toISOString().slice(0, 10);
+  return localDateKey(monday);
 }
 function weeksBetweenMondayKeys(fromKey, toKey) {
   const a = new Date(fromKey + "T00:00:00");
@@ -1291,7 +1300,7 @@ function App() {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const dateStr = new Date().toISOString().slice(0, 10);
+    const dateStr = localDateKey(new Date());
     a.href = url;
     a.download = "in-the-lab-fitness-backup-" + dateStr + ".json";
     document.body.appendChild(a);
