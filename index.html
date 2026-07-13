@@ -1624,7 +1624,7 @@ function App() {
               selectedDay: selectedDay, setSelectedDay: setSelectedDay, data: prog, exercises: def.exercises, isDeloadWeek: isDeloadWeek,
               expanded: expanded, setExpanded: setExpanded, logSet: logSet, completeDay: completeDay,
               toggleSkip: toggleSkip, setSwap: setSwap, clearSwap: clearSwap, undoCompleteWeek: undoCompleteWeek,
-              setExerciseDifficulty: setExerciseDifficulty,
+              setExerciseDifficulty: setExerciseDifficulty, color: def.color,
               deloadRecommendation: prog.deloadRecommendation, acceptDeloadRecommendation: acceptDeloadRecommendation,
               dismissDeloadRecommendation: dismissDeloadRecommendation,
             }),
@@ -1808,7 +1808,7 @@ function WorkoutsTab(props) {
                     },
                   }, isHistoryOpen ? "Hide history" : "History")
                 ),
-                isHistoryOpen && h(ExerciseHistory, { exercise: ex, logs: props.data.logs, currentWeek: props.data.currentWeek, ratings: props.data.exerciseDifficulty }),
+                isHistoryOpen && h(ExerciseHistory, { exercise: ex, logs: props.data.logs, currentWeek: props.data.currentWeek, ratings: props.data.exerciseDifficulty, color: props.color }),
                 isSkipped
                   ? h("div", { className: "skip-banner" },
                       h("span", null, "Marked skipped for this week — won't affect next week's targets."),
@@ -1910,11 +1910,13 @@ function ExerciseHistory(props) {
     const sets = ((props.logs[w] || {})[props.exercise.id] || []).filter(Boolean);
     if (sets.length > 0) weeks.push({ week: w, sets: sets, rating: (props.ratings[w] || {})[props.exercise.id] });
   }
-  weeks.reverse();
+  const chronological = weeks.slice(); // oldest → newest, for the chart
+  const displayWeeks = weeks.slice().reverse(); // newest → oldest, for the text list below
   return h("div", { className: "history-list" },
-    weeks.length === 0
+    chronological.length >= 2 && h(ProgressChart, { weeks: chronological, isBodyweight: props.exercise.bodyweight, color: props.color || "#3d97d3" }),
+    displayWeeks.length === 0
       ? h("div", { className: "history-empty" }, "No logged sets yet for this exercise.")
-      : weeks.map(function (wk) {
+      : displayWeeks.map(function (wk) {
           const setStr = wk.sets.map(function (s) {
             return (s.weight != null ? s.weight + "lb×" : "") + s.reps;
           }).join(", ");
@@ -1924,6 +1926,124 @@ function ExerciseHistory(props) {
             h("span", { className: "history-sets" }, setStr + " — " + ratingLabel)
           );
         })
+  );
+}
+
+// A minimal dependency-free SVG bar chart — this app deliberately avoids external charting
+// libraries (same reliability reasoning as avoiding other CDN scripts), so this is built from
+// plain SVG elements rather than pulling in recharts/chart.js for one feature.
+// Lean mass and fat mass sit on very different scales (often 170-190lb vs 20-35lb), so plotting
+// both raw would make the fat-mass line look almost flat. Each series is normalized to its own
+// min/max range here so both trends are equally readable — the point labels still show real
+// pound values, so nothing about the actual numbers is lost, only the shared visual scale.
+function BodyCompositionChart(props) {
+  const weeks = Object.keys(props.actuals).map(Number).sort(function (a, b) { return a - b; });
+  const points = weeks.filter(function (w) {
+    const a = props.actuals[w];
+    return a && a.weight != null && a.weight !== "" && a.bf != null && a.bf !== "";
+  }).map(function (w) {
+    const a = props.actuals[w];
+    const weight = Number(a.weight), bf = Number(a.bf);
+    const fat = Math.round(weight * (bf / 100) * 10) / 10;
+    const lean = Math.round((weight - fat) * 10) / 10;
+    return { week: w, fat: fat, lean: lean };
+  });
+  if (points.length < 2) return null;
+
+  function normalize(values) {
+    const min = Math.min.apply(null, values), max = Math.max.apply(null, values);
+    const range = max - min || 1;
+    return values.map(function (v) { return (v - min) / range; });
+  }
+  const leanNorm = normalize(points.map(function (p) { return p.lean; }));
+  const fatNorm = normalize(points.map(function (p) { return p.fat; }));
+
+  const spacing = 46, chartHeight = 100, topPad = 16, sidePad = 16, bottomPad = 18;
+  const width = Math.max((points.length - 1) * spacing, 1) + sidePad * 2;
+  const leanColor = "#3d97d3", fatColor = "#f0b429";
+
+  function coordsFor(normValues, rawValues) {
+    return points.map(function (p, i) {
+      const x = i * spacing + sidePad;
+      const y = topPad + (chartHeight - normValues[i] * chartHeight);
+      return { x: x, y: y, value: rawValues[i], week: p.week };
+    });
+  }
+  const leanCoords = coordsFor(leanNorm, points.map(function (p) { return p.lean; }));
+  const fatCoords = coordsFor(fatNorm, points.map(function (p) { return p.fat; }));
+  function pathFor(coords) { return coords.map(function (c, i) { return (i === 0 ? "M" : "L") + c.x + "," + c.y; }).join(" "); }
+
+  return h("div", { style: { marginTop: 24 } },
+    h("div", { className: "food-cat-title" }, "Lean Mass vs. Fat Mass Trend"),
+    h("div", { style: { display: "flex", gap: 16, marginBottom: 8, fontSize: 12 } },
+      h("span", { style: { color: leanColor } }, "● Lean Mass"),
+      h("span", { style: { color: fatColor } }, "● Fat Mass")
+    ),
+    h("svg", {
+      width: "100%", height: chartHeight + topPad + bottomPad + 10, viewBox: "0 0 " + width + " " + (chartHeight + topPad + bottomPad + 10),
+      preserveAspectRatio: "xMinYMin meet",
+    },
+      h("path", { d: pathFor(leanCoords), fill: "none", stroke: leanColor, strokeWidth: 2, strokeLinejoin: "round", strokeLinecap: "round" }),
+      h("path", { d: pathFor(fatCoords), fill: "none", stroke: fatColor, strokeWidth: 2, strokeLinejoin: "round", strokeLinecap: "round" }),
+      leanCoords.map(function (c) {
+        return h("g", { key: "lean-" + c.week },
+          h("circle", { cx: c.x, cy: c.y, r: 3.5, fill: leanColor }),
+          h("text", { x: c.x, y: Math.max(c.y - 8, 10), fontSize: 9, fill: leanColor, textAnchor: "middle" }, c.value)
+        );
+      }),
+      fatCoords.map(function (c) {
+        return h("g", { key: "fat-" + c.week },
+          h("circle", { cx: c.x, cy: c.y, r: 3.5, fill: fatColor }),
+          h("text", { x: c.x, y: Math.min(c.y + 15, chartHeight + topPad - 2), fontSize: 9, fill: fatColor, textAnchor: "middle" }, c.value)
+        );
+      }),
+      points.map(function (p, i) {
+        return h("text", { key: "wk-" + p.week, x: i * spacing + sidePad, y: chartHeight + topPad + bottomPad, fontSize: 10, fill: "#737373", textAnchor: "middle" }, "Wk " + p.week);
+      })
+    ),
+    h("p", { style: { fontSize: "11px", color: "#525252", marginTop: 4 } },
+      "Each line is scaled to its own range so both trends are readable together — labels show the real lb values, only the visual scale is shared.")
+  );
+}
+
+function ProgressChart(props) {
+  const points = props.weeks.map(function (wk) {
+    const validSets = wk.sets.filter(function (s) { return s.reps != null; });
+    if (props.isBodyweight) {
+      const maxReps = validSets.length ? Math.max.apply(null, validSets.map(function (s) { return s.reps || 0; })) : 0;
+      return { week: wk.week, value: maxReps };
+    }
+    const maxWeight = validSets.length ? Math.max.apply(null, validSets.map(function (s) { return s.weight || 0; })) : 0;
+    return { week: wk.week, value: maxWeight };
+  });
+  const maxVal = Math.max.apply(null, points.map(function (p) { return p.value; })) || 1;
+  const spacing = 46, chartHeight = 90, topPad = 16, sidePad = 16;
+  const width = Math.max((points.length - 1) * spacing, 1) + sidePad * 2;
+  const unit = props.isBodyweight ? "" : "lb";
+
+  const coords = points.map(function (p, i) {
+    const x = i * spacing + sidePad;
+    const y = topPad + (maxVal > 0 ? chartHeight - (p.value / maxVal) * chartHeight : chartHeight);
+    return { x: x, y: y, value: p.value, week: p.week };
+  });
+  const pathD = coords.map(function (c, i) { return (i === 0 ? "M" : "L") + c.x + "," + c.y; }).join(" ");
+
+  return h("div", { style: { marginBottom: 16 } },
+    h("div", { style: { fontSize: 11, color: "#737373", marginBottom: 4 } },
+      props.isBodyweight ? "Max reps per week (progressive overload)" : "Top weight per week (progressive overload)"),
+    h("svg", {
+      width: "100%", height: chartHeight + topPad + 26, viewBox: "0 0 " + width + " " + (chartHeight + topPad + 26),
+      preserveAspectRatio: "xMinYMin meet",
+    },
+      h("path", { d: pathD, fill: "none", stroke: props.color, strokeWidth: 2, strokeLinejoin: "round", strokeLinecap: "round" }),
+      coords.map(function (c) {
+        return h("g", { key: c.week },
+          h("circle", { cx: c.x, cy: c.y, r: 4, fill: props.color }),
+          h("text", { x: c.x, y: Math.max(c.y - 9, 10), fontSize: 10, fill: "#f5f5f5", textAnchor: "middle" }, c.value + unit),
+          h("text", { x: c.x, y: chartHeight + topPad + 18, fontSize: 10, fill: "#737373", textAnchor: "middle" }, "Wk " + c.week)
+        );
+      })
+    )
   );
 }
 
@@ -2566,7 +2686,8 @@ function MilestonesTab(props) {
             )
           );
         })
-      )
+      ),
+      h(BodyCompositionChart, { actuals: props.actuals })
     );
   }
   const baseMilestones = props.customMilestones || MILESTONES;
@@ -2615,7 +2736,8 @@ function MilestonesTab(props) {
           )
         );
       })
-    )
+    ),
+    h(BodyCompositionChart, { actuals: props.actuals })
   );
 }
 
