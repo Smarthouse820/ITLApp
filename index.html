@@ -3344,18 +3344,41 @@ function StandaloneSupplementCard(props) {
     )
   );
 }
-// Renders one meal card. The card itself is always fully visible — only its "Also take" supplement
-// checklist collapses on its own (handled entirely by SupplementSection, which derives its collapsed
-// state from the actual checked-supplement data every render, so it correctly stays collapsed across
-// tab switches/remounts rather than resetting to some fixed default).
+// Renders one meal card. Food/macro/status buttons are always visible — only the "Also take"
+// supplement checklist can be shown/hidden, via a chevron in the header (same placement/style as the
+// exercise cards' expand arrow), not a text pill sitting in the body. Once every supplement for this
+// meal is checked, the checklist auto-hides completely (no confirmation line left behind); the
+// chevron stays as the way back in to double-check or fix a mis-tap. The initial `expanded` value is
+// computed directly from the real checked-supplement data at mount time (not a fixed default), so a
+// meal that was already complete before a tab switch renders hidden immediately on remount rather
+// than needing an effect to catch up.
 function MealCard(props) {
   const m = props.meal;
   const status = props.status;
   const supplements = props.supplements || [];
+  const hasSupplements = supplements.length > 0;
+  const allSuppsChecked = hasSupplements && supplements.every(function (s) { return !!props.logsToday[s.id]; });
+  const [expanded, setExpanded] = useState(!allSuppsChecked);
+  const prevAllChecked = useRef(allSuppsChecked);
+  useEffect(function () {
+    if (allSuppsChecked && !prevAllChecked.current) setExpanded(false); // just finished — hide
+    if (!allSuppsChecked && prevAllChecked.current) setExpanded(true); // unchecked something — show again
+    prevAllChecked.current = allSuppsChecked;
+  }, [allSuppsChecked]);
+
   return h("div", { className: "meal-card" + (status && status !== "skip" ? " done" : "") + (props.disabled ? " preview-disabled" : "") },
     h("div", { className: "check-circle" + (status && status !== "skip" ? " done" : "") }, status && status !== "skip" && h(Check, { size: 12 })),
     h("div", { style: { flex: 1 } },
-      h("div", { className: "meal-top" }, h("span", null, m.name), h("span", null, m.time)),
+      h("div", { className: "meal-top" },
+        h("span", null, m.name),
+        h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+          h("span", null, m.time),
+          hasSupplements && h("button", {
+            onClick: function () { setExpanded(!expanded); },
+            style: { display: "flex", background: "none", border: "none", padding: 0, color: "#737373", cursor: "pointer" },
+          }, expanded ? h(ChevronUp, { size: 16 }) : h(ChevronDown, { size: 16 }))
+        )
+      ),
       h("div", { className: "meal-food" }, m.food),
       h("div", { className: "meal-macro" }, m.cal + " cal · " + m.p + "p / " + m.c + "c / " + m.f + "f"),
       h("div", { className: "diff-row", style: { marginTop: 8 } },
@@ -3370,10 +3393,10 @@ function MealCard(props) {
         })
       ),
       props.mealSwapControl ? props.mealSwapControl : null,
-      supplements.length > 0 && h(SupplementSection, {
+      hasSupplements && expanded && h(SupplementSection, {
         title: "Also take", supplements: supplements,
         logsToday: props.logsToday, toggleLog: props.toggleLog, disabled: props.disabled,
-        compact: true,
+        compact: true, noCollapse: true,
       })
     )
   );
