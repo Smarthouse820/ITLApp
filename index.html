@@ -1999,13 +1999,19 @@ function App() {
       } else if (targetRepHigh != null && reps >= targetRepHigh) {
         adjustment = { weight: nextWeightIncrement(weight), repsTarget: targetRepLow };
       }
+      // A normal, in-range set (neither a big miss nor beating the top of the range) means the
+      // CURRENT weight is appropriate — any adjustment already sitting from an earlier set this
+      // week (including a stale one left over from before this fix existed) should stop applying,
+      // not persist indefinitely just because nothing NEW happened to overwrite it.
+      const adjustments = Object.assign({}, prog.sessionAdjustments);
+      const weekAdjustments = Object.assign({}, adjustments[week] || {});
       if (adjustment) {
-        const adjustments = Object.assign({}, prog.sessionAdjustments);
-        const weekAdjustments = Object.assign({}, adjustments[week] || {});
         weekAdjustments[exerciseId] = adjustment;
-        adjustments[week] = weekAdjustments;
-        updates.sessionAdjustments = adjustments;
+      } else if (weekAdjustments[exerciseId]) {
+        delete weekAdjustments[exerciseId];
       }
+      adjustments[week] = weekAdjustments;
+      updates.sessionAdjustments = adjustments;
     }
     saveProgram(updates);
   }
@@ -2031,7 +2037,10 @@ function App() {
     allExercises(def.exercises).forEach(function (ex) {
       if (weekSkipped[ex.id]) return;
       const setsLogged = (weekLogs[ex.id] || []).filter(Boolean);
-      const rawCur = newState[ex.id] || { weight: ex.weight, repsTarget: ex.repLow, nameOverride: null };
+      // Merged, not `||` — same reasoning as renderCard's state resolution: a partial stub entry
+      // (missing weight/repsTarget) must still inherit the exercise's own defaults for progression
+      // math to work off a real number, not undefined.
+      const rawCur = Object.assign({ weight: ex.weight, repsTarget: ex.repLow, nameOverride: null }, newState[ex.id] || {});
       const cur = weekAdjustments[ex.id] != null ? Object.assign({}, rawCur, weekAdjustments[ex.id]) : rawCur;
       if (setsLogged.length === 0) return;
       const rating = weekDifficulty[ex.id];
@@ -2755,7 +2764,11 @@ function WorkoutsTab(props) {
     const override = thisWeekOverrides[ex.id];
     if (!override) return ex;
     return {
-      id: override.altId, name: override.name, weight: override.weight,
+      // Falls back to the original exercise's own definitional weight/range whenever the saved
+      // override is missing a value — protects both against a genuinely incomplete override AND
+      // against one that got saved with a bad value from an earlier bug (e.g. the weight-corruption
+      // issue), so this never displays as "undefinedlb" regardless of how it got that way.
+      id: override.altId, name: override.name || ex.name, weight: override.weight != null ? override.weight : ex.weight,
       sets: ex.sets, repLow: override.repLow != null ? override.repLow : ex.repLow, repHigh: override.repHigh != null ? override.repHigh : ex.repHigh,
       bodyweight: override.bodyweight, isFailure: ex.isFailure,
       isWeekSubstitute: true, originalExercise: ex,
@@ -2780,7 +2793,18 @@ function WorkoutsTab(props) {
   // grouping is purely a visual/organizational layer on top of this, nothing about logging,
   // history, notes, or swapping changes based on whether an exercise is in a superset.
   function renderCard(ex, idx) {
-    const rawState = props.data.exerciseState[ex.id] || { weight: ex.weight, repsTarget: ex.repLow, nameOverride: null };
+    // Merged, not `||` — a partial saved entry (e.g. one that only ever set muscleOverride via
+    // setMuscleOverride, or nameOverride via clearSwap, with no prior weight/reps recorded) must
+    // still fall through to the exercise's own defaults for whichever fields it doesn't specify.
+    // `||` treats ANY existing object as complete, so a stub entry missing weight/repsTarget would
+    // otherwise permanently display as "undefined" instead of the exercise's real starting numbers.
+    const rawState = Object.assign({ weight: ex.weight, repsTarget: ex.repLow, nameOverride: null }, props.data.exerciseState[ex.id] || {});
+    // Object.assign copies over an explicit `undefined` value from the stored object too (unlike
+    // `||`) — so a previously-saved exerciseState entry with weight/repsTarget already stuck at
+    // undefined (e.g. a leftover from an earlier bug) would silently win over the sensible default
+    // above. Coalesce back to the default for either field specifically if that happened.
+    if (rawState.weight == null) rawState.weight = ex.weight;
+    if (rawState.repsTarget == null) rawState.repsTarget = ex.repLow;
     // A within-session adjustment (undershoot drop or overshoot bump, triggered by a big rep miss or
     // a big rep beat) overrides the displayed/logged weight (and, for an overshoot, the rep target
     // too) for this exercise's remaining sets this week, without touching the persistent
@@ -2920,7 +2944,7 @@ function WorkoutsTab(props) {
                 exercise: ex, current: state,
                 onSave: function (name, weight, newRepRange) { props.setSwap(ex.id, name, weight, newRepRange); },
                 onSaveThisWeek: function (name, weight, newRepRange) {
-                  props.setWeekSwap(ex.id, name, weight, newRepRange ? newRepRange.repLow : null, newRepRange ? newRepRange.repHigh : null, ex.bodyweight, state.weight, range.repLow, range.repHigh);
+                  props.setWeekSwap(ex.id, name, weight, newRepRange ? newRepRange.repLow : null, newRepRange ? newRepRange.repHigh : null, ex.bodyweight, state.weight != null ? state.weight : ex.weight, range.repLow != null ? range.repLow : ex.repLow, range.repHigh != null ? range.repHigh : ex.repHigh);
                 },
                 onClear: function () { props.clearSwap(ex.id); },
               }),
