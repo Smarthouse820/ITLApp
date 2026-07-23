@@ -27,7 +27,7 @@
   .header-bottom p { font-size: 12px; color: #737373; margin: 0; }
   .icon-btn { background: none; border: none; color: #737373; padding: 8px; cursor: pointer; display: flex; }
   .icon-btn:hover { color: #d4d4d4; }
-  .header-actions { display: flex; gap: 4px; align-items: center; }
+  /* .header-actions removed — export/import/reset moved to Settings > Data & backup */
   .app-logo { height: 30px; width: auto; flex-shrink: 0; }
   .program-select { background: #171717; border: 2px solid #3d97d3; border-radius: 8px; font-size: 17px;
     font-weight: 700; padding: 8px 14px; cursor: pointer; color: #f5f5f5; }
@@ -246,6 +246,12 @@ function Icon(props) {
 function Dumbbell(p) { return h(Icon, p,
   h("path", { d: "M6.5 6.5 17.5 17.5" }), h("path", { d: "m21 21-1-1" }), h("path", { d: "m3 3 1 1" }),
   h("path", { d: "m18 9 3-3-3-3" }), h("path", { d: "M15 6h6" }), h("path", { d: "m6 15-3 3 3 3" }), h("path", { d: "M3 18h6" })); }
+function Sliders(p) { return h(Icon, p,
+  h("line", { x1: 4, y1: 21, x2: 4, y2: 14 }), h("line", { x1: 4, y1: 10, x2: 4, y2: 3 }),
+  h("line", { x1: 12, y1: 21, x2: 12, y2: 12 }), h("line", { x1: 12, y1: 8, x2: 12, y2: 3 }),
+  h("line", { x1: 20, y1: 21, x2: 20, y2: 16 }), h("line", { x1: 20, y1: 12, x2: 20, y2: 3 }),
+  h("line", { x1: 1, y1: 14, x2: 7, y2: 14 }), h("line", { x1: 9, y1: 8, x2: 15, y2: 8 }),
+  h("line", { x1: 17, y1: 16, x2: 23, y2: 16 })); }
 function Droplet(p) { return h(Icon, p, h("path", { d: "M12 2.69 7.5 8.44a6 6 0 1 0 9 0L12 2.69Z" })); }
 function UtensilsCrossed(p) { return h(Icon, p,
   h("path", { d: "m16 2-2.3 2.3a3 3 0 0 0 0 4.2l1.8 1.8a3 3 0 0 0 4.2 0L22 8" }),
@@ -1807,7 +1813,7 @@ function makeDefaultData() {
     customProgramConfig: null,
     supplementList: [], // shared across all programs — a person's actual regimen isn't tied to which workout program is active
     restTimerSettings: { enabled: false, seconds: 90 }, // client-side post-set rest reminder — no backend involved
-    pushSettings: { enabled: false }, // opt-in push reminders (meals/hydration/supplements) via the Worker
+    pushSettings: { enabled: false, meals: true, hydration: true, supplements: true }, // opt-in push reminders via the Worker — enabled is the master switch; the three flags choose which categories are included once on
     reminderTimes: { weighIn: "", trainingTime: "", trainingDays: [] }, // user-set times for weigh-in (daily) + training (day-specific)
     // Cutting, Cruise, and Hypertrophy use identical exercise ids/names (Cruise/Hypertrophy are
     // literal copies of Cutting with only sets/cardio tweaked) — so unlike Custom, whose exercises
@@ -1863,7 +1869,7 @@ function normalizeV2(parsed) {
     customProgramConfig: parsed.customProgramConfig || null,
     supplementList: parsed.supplementList || [],
     restTimerSettings: Object.assign({ enabled: false, seconds: 90 }, parsed.restTimerSettings || {}),
-    pushSettings: Object.assign({ enabled: false }, parsed.pushSettings || {}),
+    pushSettings: Object.assign({ enabled: false, meals: true, hydration: true, supplements: true }, parsed.pushSettings || {}),
     reminderTimes: Object.assign({ weighIn: "", trainingTime: "", trainingDays: [] }, parsed.reminderTimes || {}),
     sharedExerciseState: sharedExerciseState,
     sharedRirModeEnabled: !!parsed.sharedRirModeEnabled,
@@ -1966,33 +1972,41 @@ function buildPushSchedule(data) {
     byTime[hhmm].ids.push(id);
   }
   // Meals — active program's meal times (times are stable across weeks; use the first week's).
-  try {
-    const def = data.activeProgram === "custom"
-      ? buildCustomProgramDef(data.customProgramConfig)
-      : PROGRAM_DEFS[data.activeProgram];
-    if (def && def.mealsByWeek) {
-      const weekKeys = Object.keys(def.mealsByWeek).sort(function (a, b) { return Number(a) - Number(b); });
-      const meals = weekKeys.length ? def.mealsByWeek[weekKeys[0]] : [];
-      (meals || []).forEach(function (m) {
-        const mins = parseMealTimeToMinutes(m.time);
-        if (mins == null) return;
-        add(minutesToHHMM(mins), m.name || "Meal", "meal-" + m.id);
-      });
-    }
-  } catch (e) { /* if a program def can't build, skip meals rather than break the whole sync */ }
+  const ps = data.pushSettings || {};
+  // Meals — active program's meal times (times are stable across weeks; use the first week's).
+  if (ps.meals !== false) {
+    try {
+      const def = data.activeProgram === "custom"
+        ? buildCustomProgramDef(data.customProgramConfig)
+        : PROGRAM_DEFS[data.activeProgram];
+      if (def && def.mealsByWeek) {
+        const weekKeys = Object.keys(def.mealsByWeek).sort(function (a, b) { return Number(a) - Number(b); });
+        const meals = weekKeys.length ? def.mealsByWeek[weekKeys[0]] : [];
+        (meals || []).forEach(function (m) {
+          const mins = parseMealTimeToMinutes(m.time);
+          if (mins == null) return;
+          add(minutesToHHMM(mins), m.name || "Meal", "meal-" + m.id);
+        });
+      }
+    } catch (e) { /* if a program def can't build, skip meals rather than break the whole sync */ }
+  }
   // Hydration — the shared HYDRATION checkpoints.
-  (typeof HYDRATION !== "undefined" ? HYDRATION : []).forEach(function (hy) {
-    const mins = parseMealTimeToMinutes(hy.time);
-    if (mins == null) return;
-    add(minutesToHHMM(mins), "Hydration (" + hy.label + ")", "hydration-" + hy.id);
-  });
+  if (ps.hydration !== false) {
+    (typeof HYDRATION !== "undefined" ? HYDRATION : []).forEach(function (hy) {
+      const mins = parseMealTimeToMinutes(hy.time);
+      if (mins == null) return;
+      add(minutesToHHMM(mins), "Hydration (" + hy.label + ")", "hydration-" + hy.id);
+    });
+  }
   // Timed supplements — supplementList entries with a time; as-needed (no time) are skipped.
-  (data.supplementList || []).forEach(function (supp) {
-    if (!supp || !supp.time) return;
-    const mins = parseMealTimeToMinutes(supp.time);
-    if (mins == null) return;
-    add(minutesToHHMM(mins), supp.name || "Supplement", "supp-" + supp.id);
-  });
+  if (ps.supplements !== false) {
+    (data.supplementList || []).forEach(function (supp) {
+      if (!supp || !supp.time) return;
+      const mins = parseMealTimeToMinutes(supp.time);
+      if (mins == null) return;
+      add(minutesToHHMM(mins), supp.name || "Supplement", "supp-" + supp.id);
+    });
+  }
   // Daily weigh-in reminder — user-set time (blank = off). Daily, so it joins the merge map.
   const rt = data.reminderTimes || {};
   if (rt.weighIn) {
@@ -2151,11 +2165,14 @@ function App() {
     } catch (e) {}
   }
   // Mirrors updateRestTimerSettings: flip the flag, then do the subscribe/unsubscribe side effect.
+  // `enabled` is the MASTER switch — it owns the subscribe/unsubscribe lifecycle. The category
+  // flags (meals/hydration/supplements) only change which entries buildPushSchedule includes;
+  // they don't touch the subscription, so flipping one just re-syncs via the effect below.
   function updatePushSettings(patch) {
-    const cur = data.pushSettings || { enabled: false };
+    const cur = data.pushSettings || { enabled: false, meals: true, hydration: true, supplements: true };
     if (patch.enabled === true && !cur.enabled) {
       subscribeToPush().then(function (ok) {
-        save(Object.assign({}, data, { pushSettings: { enabled: !!ok } }));
+        save(Object.assign({}, data, { pushSettings: Object.assign({}, cur, { enabled: !!ok }) }));
         if (ok) setToast("Reminders on");
       });
       return;
@@ -2962,15 +2979,7 @@ function App() {
   return h("div", { className: "app" },
     h("header", { className: "header" },
       h("div", { className: "header-top" },
-        h("img", { src: LOGO_HEADER_URI, className: "app-logo", alt: "In The Lab Fitness" }),
-        h("div", { className: "header-actions" },
-          h("button", { className: "icon-btn", onClick: exportData, "aria-label": "Export data" }, h(Download, { size: 18 })),
-          h("label", { className: "icon-btn", style: { cursor: "pointer" } },
-            h(Upload, { size: 18 }),
-            h("input", { type: "file", accept: "application/json", style: { display: "none" }, onChange: function (e) { if (e.target.files[0]) importData(e.target.files[0]); } })
-          ),
-          h("button", { className: "icon-btn", onClick: resetAll, "aria-label": "Reset progress" }, h(RotateCcw, { size: 18 }))
-        )
+        h("img", { src: LOGO_HEADER_URI, className: "app-logo", alt: "In The Lab Fitness" })
       ),
       h("div", { className: "header-bottom" },
         h("select", {
@@ -3015,8 +3024,6 @@ function App() {
               acceptVolumeIncreaseRecommendation: acceptVolumeIncreaseRecommendation,
               dismissVolumeIncreaseRecommendation: dismissVolumeIncreaseRecommendation,
               restTimerSettings: data.restTimerSettings, updateRestTimerSettings: updateRestTimerSettings,
-              pushSettings: data.pushSettings, updatePushSettings: updatePushSettings,
-              reminderTimes: data.reminderTimes, updateReminderTimes: updateReminderTimes, toggleTrainingDay: toggleTrainingDay,
               startRestTimer: startRestTimer, skipRestTimer: skipRestTimer,
             }),
             tab === "nutrition" && h(NutritionTab, {
@@ -3062,42 +3069,16 @@ function App() {
               plan: customPlan, setPlan: setCustomPlan, slots: def.slots,
               allFoods: allFoods, customFoods: data.customFoods || [], addCustomFood: addCustomFood, removeCustomFood: removeCustomFood,
             }),
-            def.needsSetup === false && data.activeProgram === "custom" && h("div", { style: { margin: "16px" } },
-              h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-                h("button", { className: "ex-action-btn", onClick: function () { setShowEditProgramSettings(!showEditProgramSettings); } }, "Edit Program Settings"),
-                h("button", { className: "reset-list-btn", style: { flex: 1, marginBottom: 0 }, onClick: resetCustomSetup }, "Redo Custom program setup")
-              ),
-              // No macro-recalculation fields here (unlike the case-study version) — this program's
-              // Custom setup never had that feature built for it, so this panel exists purely to
-              // carry the RIR toggle rather than porting unrelated infrastructure along with it.
-              showEditProgramSettings && h("div", { style: { marginTop: 8 } },
-                h("div", { className: "food-cat-title" }, "RIR Mode"),
-                h("p", { style: { fontSize: "11px", color: "#737373", margin: "4px 0 8px" } },
-                  "Instead of a fixed rep range, your target rep count builds from what you actually logged last week, following a progressive schedule that pushes closer to failure across each phase and eases off again after each deload. Existing per-set weight adjustments turn off while this is on — reps are typed in exactly as they already are, nothing new to enter."),
-                h("button", {
-                  className: "ex-action-btn", style: { width: "100%" },
-                  onClick: toggleRirMode,
-                }, rirModeEnabled ? "Turn Off RIR Mode" : "Turn On RIR Mode")
-              )
-            ),
-            // Cutting/Cruise/Hypertrophy don't have a wizard, so there's no weight/activity/diet-
-            // style to recalculate here — this panel exists purely to carry the RIR mode toggle,
-            // shared across all three the same way their exercise progression already is.
-            isSharedProgram && h("div", { style: { margin: "16px" } },
-              h("button", {
-                className: "ex-action-btn", style: { width: "100%" },
-                onClick: function () { setShowEditProgramSettings(!showEditProgramSettings); },
-              }, "Edit Program Settings"),
-              showEditProgramSettings && h("div", { style: { marginTop: 8 } },
-                h("div", { className: "food-cat-title" }, "RIR Mode"),
-                h("p", { style: { fontSize: "11px", color: "#737373", margin: "4px 0 8px" } },
-                  "Instead of a fixed rep range, your target rep count builds from what you actually logged last week, following a progressive schedule that pushes closer to failure across each phase and eases off again after each deload. Existing per-set weight adjustments turn off while this is on — reps are typed in exactly as they already are, nothing new to enter. Shared across Cutting, Cruise, and Hypertrophy, same as your exercise progression already is."),
-                h("button", {
-                  className: "ex-action-btn", style: { width: "100%" },
-                  onClick: toggleRirMode,
-                }, rirModeEnabled ? "Turn Off RIR Mode" : "Turn On RIR Mode")
-              )
-            )
+            tab === "settings" && h(SettingsTab, {
+              pushSettings: data.pushSettings, updatePushSettings: updatePushSettings,
+              reminderTimes: data.reminderTimes, updateReminderTimes: updateReminderTimes, toggleTrainingDay: toggleTrainingDay,
+              isCustomProgram: def.needsSetup === false && data.activeProgram === "custom",
+              isSharedProgram: isSharedProgram, activeProgramLabel: def.label, rirModeEnabled: rirModeEnabled, toggleRirMode: toggleRirMode,
+              showEditProgramSettings: showEditProgramSettings, setShowEditProgramSettings: setShowEditProgramSettings,
+              resetCustomSetup: resetCustomSetup,
+              uiPrefs: data.uiPrefs, updateUiPrefs: updateUiPrefs,
+              exportData: exportData, importData: importData, resetAll: resetAll,
+            })
           ),
           h("nav", { className: "navbar" },
             h(TabButton, { Icon: Dumbbell, label: "Workouts", active: tab === "workouts", onClick: function () { setTab("workouts"); } }),
@@ -3105,7 +3086,8 @@ function App() {
             h(TabButton, { Icon: Droplet, label: "Hydration", active: tab === "hydration", onClick: function () { setTab("hydration"); } }),
             h(TabButton, { Icon: TrendingUp, label: "Milestones", active: tab === "milestones", onClick: function () { setTab("milestones"); } }),
             h(TabButton, { Icon: ShoppingCart, label: "Grocery", active: tab === "grocery", onClick: function () { setTab("grocery"); } }),
-            h(TabButton, { Icon: Sparkles, label: "Food Plan", active: tab === "custom", onClick: function () { setTab("custom"); } })
+            h(TabButton, { Icon: Sparkles, label: "Food Plan", active: tab === "custom", onClick: function () { setTab("custom"); } }),
+            h(TabButton, { Icon: Sliders, label: "Settings", active: tab === "settings", onClick: function () { setTab("settings"); } })
           )
         )
   );
@@ -3459,58 +3441,6 @@ function WorkoutsTab(props) {
               },
             }, "Confirm Superset (" + pendingSelection.length + " selected)")
           )
-    ),
-    h("div", { className: "panel", style: { marginBottom: 12, padding: "10px 14px", background: "#0a0a0a", border: "1px solid #404040", borderRadius: 8 } },
-      h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
-        h("span", { style: { fontSize: 13 } }, "Meal / Hydration / Supplement Reminders"),
-        h("div", { style: { display: "flex", gap: 6 } },
-          h("button", {
-            className: "ex-action-btn",
-            style: Object.assign({ flex: "0 0 auto", padding: "6px 14px" }, (props.pushSettings && props.pushSettings.enabled) ? { background: "#1d4ed8", color: "#fff", borderColor: "#1d4ed8" } : {}),
-            onClick: function () { props.updatePushSettings({ enabled: true }); },
-          }, "On"),
-          h("button", {
-            className: "ex-action-btn",
-            style: Object.assign({ flex: "0 0 auto", padding: "6px 14px" }, !(props.pushSettings && props.pushSettings.enabled) ? { background: "#262626", color: "#fff" } : {}),
-            onClick: function () { props.updatePushSettings({ enabled: false }); },
-          }, "Off")
-        )
-      ),
-      h("p", { style: { fontSize: 11, color: "#737373", margin: "8px 0 0" } },
-        "Sends reminders at your meal, hydration, and timed-supplement times. Same times shift automatically if you switch programs or edit a supplement."),
-      (props.pushSettings && props.pushSettings.enabled) && h("div", { style: { marginTop: 12, borderTop: "1px solid #262626", paddingTop: 12 } },
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
-          h("span", { style: { fontSize: 13 } }, "Daily weigh-in"),
-          h("input", {
-            type: "time",
-            value: (props.reminderTimes && props.reminderTimes.weighIn) || "",
-            onChange: function (e) { props.updateReminderTimes({ weighIn: e.target.value }); },
-            style: { background: "#0a0a0a", border: "1px solid #404040", borderRadius: 6, padding: "6px 8px", fontSize: 14, color: "#f5f5f5" },
-          })
-        ),
-        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 } },
-          h("span", { style: { fontSize: 13 } }, "Training"),
-          h("input", {
-            type: "time",
-            value: (props.reminderTimes && props.reminderTimes.trainingTime) || "",
-            onChange: function (e) { props.updateReminderTimes({ trainingTime: e.target.value }); },
-            style: { background: "#0a0a0a", border: "1px solid #404040", borderRadius: 6, padding: "6px 8px", fontSize: 14, color: "#f5f5f5" },
-          })
-        ),
-        h("div", { style: { display: "flex", gap: 4, justifyContent: "space-between" } },
-          ["S", "M", "T", "W", "T", "F", "S"].map(function (lbl, dow) {
-            const on = props.reminderTimes && (props.reminderTimes.trainingDays || []).indexOf(dow) !== -1;
-            return h("button", {
-              key: dow,
-              onClick: function () { props.toggleTrainingDay(dow); },
-              className: "ex-action-btn",
-              style: Object.assign({ flex: 1, padding: "6px 0", fontSize: 12 }, on ? { background: "#1d4ed8", color: "#fff", borderColor: "#1d4ed8" } : {}),
-            }, lbl);
-          })
-        ),
-        h("p", { style: { fontSize: 11, color: "#737373", margin: "8px 0 0" } },
-          "Leave a time blank to skip that reminder. Training fires only on the selected days."),
-      ),
     ),
     h("div", { className: "panel", style: { marginBottom: 12, padding: "10px 14px", background: "#0a0a0a", border: "1px solid #404040", borderRadius: 8 } },
       h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
@@ -4618,6 +4548,149 @@ function FoodSearchLog(props) {
           h("button", { className: "logged-food-remove", onClick: function () { props.removeEntry(entry.id); } }, "✕")
         );
       })
+    )
+  );
+}
+
+// Collapsible section for the Settings tab. Open/closed state persists through the same
+// updateUiPrefs mechanism already used for Sleep/Supplements collapse state, keyed per section id,
+// so it survives tab switches and reloads exactly like those do.
+function SettingsSection(props) {
+  const key = "settingsOpen_" + props.id;
+  const open = props.uiPrefs && props.uiPrefs[key] != null ? props.uiPrefs[key] : !!props.defaultOpen;
+  return h("div", { className: "panel", style: { marginBottom: 10, padding: 0, background: "#0f0f0f", border: "1px solid #404040", borderRadius: 10, overflow: "hidden" } },
+    h("div", {
+      style: { display: "flex", alignItems: "center", gap: 10, padding: "14px", cursor: "pointer", userSelect: "none" },
+      onClick: function () { props.updateUiPrefs({ [key]: !open }); },
+    },
+      h("span", { style: { fontSize: 14, fontWeight: 600, flex: 1 } }, props.title),
+      props.status != null && h("span", { style: { fontSize: 12, color: props.statusOn ? "#60a5fa" : "#737373" } }, props.status),
+      h("span", { style: { fontSize: 12, color: "#737373", transform: open ? "rotate(90deg)" : "none", display: "inline-block" } }, "\u203A")
+    ),
+    open && h("div", { style: { padding: "2px 14px 14px", borderTop: "1px solid #262626" } }, props.children)
+  );
+}
+
+function SettingsRow(props) {
+  return h("div", { style: Object.assign({ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #262626" }, props.style || {}) }, props.children);
+}
+
+function SettingsSeg(props) {
+  return h("div", { style: { display: "flex", gap: 6 } },
+    h("button", {
+      className: "ex-action-btn",
+      style: Object.assign({ flex: "0 0 auto", padding: "6px 14px" }, props.on ? { background: "#1d4ed8", color: "#fff", borderColor: "#1d4ed8" } : {}),
+      onClick: function () { props.onChange(true); },
+    }, "On"),
+    h("button", {
+      className: "ex-action-btn",
+      style: Object.assign({ flex: "0 0 auto", padding: "6px 14px" }, !props.on ? { background: "#262626", color: "#fff" } : {}),
+      onClick: function () { props.onChange(false); },
+    }, "Off")
+  );
+}
+
+function SettingsTab(props) {
+  const ps = props.pushSettings || { enabled: false, meals: true, hydration: true, supplements: true };
+  const masterOn = !!ps.enabled;
+  const rt = props.reminderTimes || { weighIn: "", trainingTime: "", trainingDays: [] };
+  const onCount = masterOn ? [ps.meals !== false, ps.hydration !== false, ps.supplements !== false].filter(Boolean).length : 0;
+
+  return h("div", { style: { padding: "12px 16px" } },
+    // ---- Account (placeholder — no login/sync built yet) ----
+    h(SettingsSection, { id: "account", title: "Account", status: "Not signed in", uiPrefs: props.uiPrefs, updateUiPrefs: props.updateUiPrefs },
+      h(SettingsRow, null, h("div", null,
+        h("div", { style: { fontSize: 13 } }, "Create account"),
+        h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "Sync across devices, coordinator access")),
+        h("span", { style: { fontSize: 11, color: "#525252", border: "1px solid #333", borderRadius: 20, padding: "2px 8px" } }, "Coming soon")),
+      h(SettingsRow, { style: { borderBottom: "none" } }, h("span", { style: { fontSize: 13 } }, "Sign in"),
+        h("span", { style: { fontSize: 11, color: "#525252", border: "1px solid #333", borderRadius: 20, padding: "2px 8px" } }, "Coming soon"))
+    ),
+
+    // ---- Reminders — master switch owns the subscription; the three category flags just decide
+    // what's included in the schedule once it's on. ----
+    h(SettingsSection, { id: "reminders", title: "Reminders", status: masterOn ? onCount + " on" : "Off", statusOn: masterOn, defaultOpen: true, uiPrefs: props.uiPrefs, updateUiPrefs: props.updateUiPrefs },
+      h(SettingsRow, null,
+        h("div", null, h("div", { style: { fontSize: 13 } }, "All reminders"),
+          h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "Master switch for meals, hydration, supplements, weigh-in and training")),
+        h(SettingsSeg, { on: masterOn, onChange: function (v) { props.updatePushSettings({ enabled: v }); } })
+      ),
+      masterOn && h("div", { style: { marginTop: 6 } },
+        h(SettingsRow, null, h("div", null, h("div", { style: { fontSize: 13 } }, "Meals"), h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "At your meal times")),
+          h(SettingsSeg, { on: ps.meals !== false, onChange: function (v) { props.updatePushSettings({ meals: v }); } })),
+        h(SettingsRow, null, h("div", null, h("div", { style: { fontSize: 13 } }, "Hydration"), h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "At each checkpoint")),
+          h(SettingsSeg, { on: ps.hydration !== false, onChange: function (v) { props.updatePushSettings({ hydration: v }); } })),
+        h(SettingsRow, null, h("div", null, h("div", { style: { fontSize: 13 } }, "Supplements"), h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "At your timed doses")),
+          h(SettingsSeg, { on: ps.supplements !== false, onChange: function (v) { props.updatePushSettings({ supplements: v }); } })),
+        h("div", { style: { marginTop: 10, borderTop: "1px solid #262626", paddingTop: 10 } },
+          h(SettingsRow, null, h("span", { style: { fontSize: 13 } }, "Daily weigh-in"),
+            h("input", { type: "time", value: rt.weighIn || "", onChange: function (e) { props.updateReminderTimes({ weighIn: e.target.value }); },
+              style: { background: "#0a0a0a", border: "1px solid #404040", borderRadius: 6, padding: "6px 8px", fontSize: 14, color: "#f5f5f5" } })),
+          h(SettingsRow, { style: { borderBottom: "none" } }, h("span", { style: { fontSize: 13 } }, "Training"),
+            h("input", { type: "time", value: rt.trainingTime || "", onChange: function (e) { props.updateReminderTimes({ trainingTime: e.target.value }); },
+              style: { background: "#0a0a0a", border: "1px solid #404040", borderRadius: 6, padding: "6px 8px", fontSize: 14, color: "#f5f5f5" } })),
+          h("div", { style: { display: "flex", gap: 4, justifyContent: "space-between", marginTop: 8 } },
+            ["S", "M", "T", "W", "T", "F", "S"].map(function (lbl, dow) {
+              const on = (rt.trainingDays || []).indexOf(dow) !== -1;
+              return h("button", { key: dow, onClick: function () { props.toggleTrainingDay(dow); }, className: "ex-action-btn",
+                style: Object.assign({ flex: 1, padding: "6px 0", fontSize: 12 }, on ? { background: "#1d4ed8", color: "#fff", borderColor: "#1d4ed8" } : {}) }, lbl);
+            })
+          ),
+          h("p", { style: { fontSize: 11, color: "#737373", margin: "8px 0 0" } }, "Leave a time blank to skip that reminder. Training fires only on the selected days.")
+        )
+      )
+    ),
+
+    // ---- Program (moved here from rendering on every tab) ----
+    h(SettingsSection, { id: "program", title: "Program", status: props.activeProgramLabel + (props.rirModeEnabled ? " \u00b7 RIR on" : ""), uiPrefs: props.uiPrefs, updateUiPrefs: props.updateUiPrefs },
+      h(SettingsRow, null,
+        h("div", null, h("div", { style: { fontSize: 13 } }, "RIR mode"),
+          h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2, maxWidth: 220 } }, "Autoregulate reps from what you logged last week instead of a fixed range")),
+        h(SettingsSeg, { on: props.rirModeEnabled, onChange: function () { props.toggleRirMode(); } })
+      ),
+      h(SettingsRow, { style: props.isCustomProgram ? {} : { borderBottom: "none" } },
+        h("span", { style: { fontSize: 13 } }, "Edit program settings"),
+        h("button", { className: "ex-action-btn", onClick: function () { props.setShowEditProgramSettings(!props.showEditProgramSettings); } },
+          props.showEditProgramSettings ? "Hide" : "Show")
+      ),
+      props.isCustomProgram && h(SettingsRow, { style: { borderBottom: "none" } },
+        h("span", { style: { fontSize: 13 } }, "Redo custom setup"),
+        h("button", { className: "ex-action-btn", onClick: props.resetCustomSetup }, "Redo")
+      )
+    ),
+
+    // ---- Integrations (placeholder — wearables and smart scale are backlog items, not built) ----
+    h(SettingsSection, { id: "integrations", title: "Integrations", status: "None connected", uiPrefs: props.uiPrefs, updateUiPrefs: props.updateUiPrefs },
+      h(SettingsRow, null, h("div", null,
+        h("div", { style: { fontSize: 13 } }, "Wearable (HRV, recovery)"),
+        h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "Whoop, Oura, Garmin, Apple Watch")),
+        h("span", { style: { fontSize: 11, color: "#525252", border: "1px solid #333", borderRadius: 20, padding: "2px 8px" } }, "Coming soon")),
+      h(SettingsRow, { style: { borderBottom: "none" } }, h("div", null,
+        h("div", { style: { fontSize: 13 } }, "Smart scale"),
+        h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "Withings \u2014 weight and body fat")),
+        h("span", { style: { fontSize: 11, color: "#525252", border: "1px solid #333", borderRadius: 20, padding: "2px 8px" } }, "Coming soon"))
+    ),
+
+    // ---- Display ----
+    h(SettingsSection, { id: "display", title: "Display", status: (props.uiPrefs && props.uiPrefs.expandAllDefault) ? "Expanded" : "Compact", uiPrefs: props.uiPrefs, updateUiPrefs: props.updateUiPrefs },
+      h(SettingsRow, { style: { borderBottom: "none" } },
+        h("div", null, h("div", { style: { fontSize: 13 } }, "Expand all cards by default"),
+          h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "Start each page fully open")),
+        h(SettingsSeg, { on: !!(props.uiPrefs && props.uiPrefs.expandAllDefault), onChange: function (v) { props.updateUiPrefs({ expandAllDefault: v }); } })
+      )
+    ),
+
+    // ---- Data & backup (moved here from the header icon row) ----
+    h(SettingsSection, { id: "data", title: "Data & backup", uiPrefs: props.uiPrefs, updateUiPrefs: props.updateUiPrefs },
+      h(SettingsRow, null, h("button", { className: "ex-action-btn", style: { width: "100%", textAlign: "left" }, onClick: props.exportData }, "Export backup")),
+      h(SettingsRow, null,
+        h("label", { className: "ex-action-btn", style: { width: "100%", textAlign: "left", cursor: "pointer", display: "block" } },
+          "Import backup",
+          h("input", { type: "file", accept: "application/json", style: { display: "none" }, onChange: function (e) { if (e.target.files[0]) props.importData(e.target.files[0]); } })
+        )
+      ),
+      h(SettingsRow, { style: { borderBottom: "none" } },
+        h("button", { className: "ex-action-btn", style: { width: "100%", textAlign: "left", color: "#f87171", borderColor: "#5b2626" }, onClick: props.resetAll }, "Reset progress\u2026"))
     )
   );
 }
