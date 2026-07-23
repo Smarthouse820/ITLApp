@@ -252,6 +252,9 @@ function Sliders(p) { return h(Icon, p,
   h("line", { x1: 20, y1: 21, x2: 20, y2: 16 }), h("line", { x1: 20, y1: 12, x2: 20, y2: 3 }),
   h("line", { x1: 1, y1: 14, x2: 7, y2: 14 }), h("line", { x1: 9, y1: 8, x2: 15, y2: 8 }),
   h("line", { x1: 17, y1: 16, x2: 23, y2: 16 })); }
+function Gear(p) { return h(Icon, p,
+  h("circle", { cx: 12, cy: 12, r: 3 }),
+  h("path", { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" })); }
 function Droplet(p) { return h(Icon, p, h("path", { d: "M12 2.69 7.5 8.44a6 6 0 1 0 9 0L12 2.69Z" })); }
 function UtensilsCrossed(p) { return h(Icon, p,
   h("path", { d: "m16 2-2.3 2.3a3 3 0 0 0 0 4.2l1.8 1.8a3 3 0 0 0 4.2 0L22 8" }),
@@ -2978,8 +2981,13 @@ function App() {
 
   return h("div", { className: "app" },
     h("header", { className: "header" },
-      h("div", { className: "header-top" },
-        h("img", { src: LOGO_HEADER_URI, className: "app-logo", alt: "In The Lab Fitness" })
+      h("div", { className: "header-top", style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+        h("img", { src: LOGO_HEADER_URI, className: "app-logo", alt: "In The Lab Fitness" }),
+        h("button", {
+          className: "icon-btn", "aria-label": "Settings",
+          style: tab === "settings" ? { color: "#60a5fa" } : {},
+          onClick: function () { setTab(tab === "settings" ? "workouts" : "settings"); },
+        }, h(Gear, { size: 22 }))
       ),
       h("div", { className: "header-bottom" },
         h("select", {
@@ -3086,8 +3094,7 @@ function App() {
             h(TabButton, { Icon: Droplet, label: "Hydration", active: tab === "hydration", onClick: function () { setTab("hydration"); } }),
             h(TabButton, { Icon: TrendingUp, label: "Milestones", active: tab === "milestones", onClick: function () { setTab("milestones"); } }),
             h(TabButton, { Icon: ShoppingCart, label: "Grocery", active: tab === "grocery", onClick: function () { setTab("grocery"); } }),
-            h(TabButton, { Icon: Sparkles, label: "Food Plan", active: tab === "custom", onClick: function () { setTab("custom"); } }),
-            h(TabButton, { Icon: Sliders, label: "Settings", active: tab === "settings", onClick: function () { setTab("settings"); } })
+            h(TabButton, { Icon: Sparkles, label: "Food Plan", active: tab === "custom", onClick: function () { setTab("custom"); } })
           )
         )
   );
