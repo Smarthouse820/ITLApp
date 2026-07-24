@@ -1984,7 +1984,7 @@ function getOrCreatePushId() {
 // keeps the Worker's KV entries for this device (subscription + Withings tokens) trivially linkable
 // if that's ever useful. The Client ID is public by OAuth2 design (same treatment as VAPID_PUBLIC_KEY);
 // only the Client Secret is sensitive, and that never leaves the Worker.
-const WITHINGS_CLIENT_ID = "49e01585844984ff5ab19e656fa20de7cab9f8a1f96f2bcc95b00e9e0ccf7cc6";
+const WITHINGS_CLIENT_ID = "43822d764b4993f9cbb9a4d212b2e2e74e580eb21e539007964c967a83ce2e1a";
 
 // Redirects the browser to Withings' own login/consent page — safe to build entirely client-side
 // since only the public Client ID is involved. `state` carries this device's id and the exact URL
