@@ -2378,23 +2378,42 @@ function App() {
   // every single keystroke or tap. Silent on success (see backupToSupabase above); syncStatus only
   // exists to power the quiet "Last synced" status line, not to interrupt anyone with a toast
   // every few seconds of normal use.
+  //
+  // Reads and writes never depend on any of this — localStorage (via save(), unaffected by any of
+  // it) is what the app actually shows, instantly, online or not. This is purely a background
+  // attempt to also get a copy to the cloud; when it can't, nothing about using the app changes.
   const [lastSyncedAt, setLastSyncedAt] = useState(null);
-  const [syncStatus, setSyncStatus] = useState("idle"); // "idle" | "syncing" | "error"
+  const [syncStatus, setSyncStatus] = useState("idle"); // "idle" | "syncing" | "offline" | "error"
   const autoSyncTimer = useRef(null);
+  function attemptSync() {
+    // Skip the network call entirely when the browser already knows it's offline — no point
+    // waiting on a request doomed to fail, and "Offline" is a more honest status than "failed".
+    if (typeof navigator !== "undefined" && navigator.onLine === false) { setSyncStatus("offline"); return; }
+    setSyncStatus("syncing");
+    backupToSupabase().then(function () {
+      setSyncStatus("idle");
+      setLastSyncedAt(new Date());
+    }).catch(function () {
+      setSyncStatus("error");
+    });
+  }
   useEffect(function () {
     if (!session) return; // nothing to sync to if signed out
     if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
-    autoSyncTimer.current = setTimeout(function () {
-      setSyncStatus("syncing");
-      backupToSupabase().then(function () {
-        setSyncStatus("idle");
-        setLastSyncedAt(new Date());
-      }).catch(function () {
-        setSyncStatus("error");
-      });
-    }, 4000);
+    autoSyncTimer.current = setTimeout(attemptSync, 4000);
     return function () { if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current); };
   }, [data, session]);
+  // The debounced effect above only fires again on the NEXT data change — if someone goes offline,
+  // makes changes, then just closes their laptop until connectivity returns without touching the
+  // app again, nothing would otherwise notice reconnection happened. This listens for exactly that
+  // moment and retries immediately, rather than leaving a failed/offline sync stranded indefinitely.
+  useEffect(function () {
+    function handleOnline() {
+      if (session && (syncStatus === "error" || syncStatus === "offline")) attemptSync();
+    }
+    window.addEventListener("online", handleOnline);
+    return function () { window.removeEventListener("online", handleOnline); };
+  }, [session, syncStatus, data]);
   // Pulls the account's stored data down and OVERWRITES whatever is currently on this device —
   // the mirror image of backupToSupabase, and the more consequential direction: backup only adds
   // to the cloud, this replaces what's local. Routes the fetched data through normalizeV2, the
@@ -5169,6 +5188,7 @@ function SettingsTab(props) {
       // deliberately silent to avoid a toast firing every few seconds of normal use.
       props.session && h("p", { style: { fontSize: 11, color: props.syncStatus === "error" ? "#f87171" : "#737373", margin: "10px 0 0" } },
         props.syncStatus === "syncing" ? "Syncing\u2026"
+          : props.syncStatus === "offline" ? "Offline \u2014 will sync once you're back online"
           : props.syncStatus === "error" ? "Last sync failed \u2014 will retry automatically"
           : props.lastSyncedAt ? "Last synced " + formatRelativeTime(props.lastSyncedAt)
           : "Not yet synced this session"),
