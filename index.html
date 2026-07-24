@@ -2409,7 +2409,7 @@ function programStateHasRealData(state) {
 }
 
 function App() {
-  const APP_VERSION = "2026-07-24T22:20:00";
+  const APP_VERSION = "2026-07-24T22:50:00";
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useEffect(function () {
     function checkVersion() {
@@ -4429,32 +4429,32 @@ function WorkoutsTab(props) {
               setHistoryOpen(next);
             },
           }, isHistoryOpen ? "Hide history" : "History"),
-          h(ExerciseOverflowMenu, {
-            items: [
-              props.isSharedProgram && !ex.isWeekSubstitute && {
-                label: "Clear History", danger: true,
-                onClick: function () {
-                  if (window.confirm("Clear saved progress for \"" + displayName + "\"? This resets its weight and rep target back to the program's starting point — shared across Cutting/Cruise/Hypertrophy, so this affects all three. Past logged sets stay in your history untouched; this only resets where you're picking up from.")) {
-                    props.clearExerciseHistory(ex.id);
-                  }
-                },
-              },
-              {
-                label: "Muscle: " + titleCaseMuscle(effectiveMuscle(ex, state)),
-                onClick: function () {
-                  const next = Object.assign({}, muscleEditOpen);
-                  next[ex.id] = !next[ex.id];
-                  setMuscleEditOpen(next);
-                },
-              },
-              {
-                label: "Watch Demo",
-                onClick: function () {
-                  window.open("https://www.youtube.com/results?search_query=" + encodeURIComponent(ex.name + " exercise form"), "_blank", "noopener,noreferrer");
-                },
-              },
-            ],
-          })
+          // Clear History / Muscle / Watch Demo were briefly tucked behind a "⋯" overflow menu on
+          // the theory that they're occasional actions and don't deserve equal visual weight. In
+          // practice the menu just made them hard to find — including for the person who built it —
+          // so they're back as plain buttons alongside Skip/Swap/History.
+          props.isSharedProgram && !ex.isWeekSubstitute && h("button", {
+            className: "ex-action-btn", style: { borderColor: "#f87171", color: "#f87171" },
+            onClick: function () {
+              if (window.confirm("Clear saved progress for \"" + displayName + "\"? This resets its weight and rep target back to the program's starting point — shared across Cutting/Cruise/Hypertrophy, so this affects all three. Past logged sets stay in your history untouched; this only resets where you're picking up from.")) {
+                props.clearExerciseHistory(ex.id);
+              }
+            },
+          }, "Clear History"),
+          h("button", {
+            className: "ex-action-btn",
+            onClick: function () {
+              const next = Object.assign({}, muscleEditOpen);
+              next[ex.id] = !next[ex.id];
+              setMuscleEditOpen(next);
+            },
+          }, "Muscle: " + titleCaseMuscle(effectiveMuscle(ex, state))),
+          h("button", {
+            className: "ex-action-btn",
+            onClick: function () {
+              window.open("https://www.youtube.com/results?search_query=" + encodeURIComponent(ex.name + " exercise form"), "_blank", "noopener,noreferrer");
+            },
+          }, "Watch Demo")
         ),
         muscleEditOpen[ex.id] && h("div", { style: { marginBottom: 12 } },
           h("p", { style: { fontSize: "11px", color: "#737373", margin: "0 0 6px" } },
@@ -4789,48 +4789,6 @@ function ExerciseNotes(props) {
       className: "exercise-notes-input",
       rows: 2,
     })
-  );
-}
-
-// A small "⋯" button that reveals rarely-used actions (Clear History, Muscle override, Watch
-// Demo) instead of showing every action at full size all the time — those three are things you
-// reach for occasionally (correcting a mis-tag, looking up form, resetting after an injury), not
-// every set, so they don't deserve the same visual weight as Skip/Swap/History. Falsy entries in
-// `items` (e.g. an action that doesn't apply to this program) are simply skipped.
-function ExerciseOverflowMenu(props) {
-  const [open, setOpen] = useState(false);
-  const visibleItems = props.items.filter(Boolean);
-  if (visibleItems.length === 0) return null;
-  return h("div", { style: { position: "relative", flex: "0 0 auto" } },
-    h("button", {
-      className: "ex-action-btn", style: { width: 44, padding: "8px 0", fontSize: 16 },
-      onClick: function (e) { e.stopPropagation(); setOpen(!open); },
-      "aria-label": "More actions",
-    }, "\u22ef"),
-    open && h("div", {
-      onClick: function () { setOpen(false); },
-      style: { position: "fixed", inset: 0, zIndex: 999 },
-    }),
-    open && h("div", {
-      style: {
-        position: "absolute", right: 0, top: "100%", marginTop: 4, background: "#171717",
-        border: "1px solid #404040", borderRadius: 8, minWidth: 190, zIndex: 1000,
-        boxShadow: "0 4px 12px rgba(0,0,0,0.4)", overflow: "hidden",
-      },
-    },
-      visibleItems.map(function (item, i) {
-        return h("button", {
-          key: i,
-          style: {
-            display: "block", width: "100%", textAlign: "left", padding: "10px 14px",
-            background: "none", border: "none",
-            borderBottom: i < visibleItems.length - 1 ? "1px solid #262626" : "none",
-            color: item.danger ? "#f87171" : "#f5f5f5", fontSize: 13, cursor: "pointer",
-          },
-          onClick: function () { setOpen(false); item.onClick(); },
-        }, item.label);
-      })
-    )
   );
 }
 
@@ -5982,17 +5940,23 @@ function FreshDeviceRestorePrompt(props) {
     h("div", { style: { background: "#171717", border: "1px solid #404040", borderRadius: 12, padding: 20, maxWidth: 360 } },
       h("h3", { style: { margin: "0 0 10px", fontSize: 16 } }, "Existing data found"),
       h("p", { style: { fontSize: 13, color: "#d4d4d4", lineHeight: 1.5, margin: "0 0 10px" } },
-        // summary is empty when the only thing worth restoring is account-level setup — a completed
-        // Custom wizard or customised weights, with no logged sessions yet. Naming nothing specific
-        // is still far better than not offering at all, since redoing setup is exactly the loss this
-        // prompt exists to prevent.
+        // "progress saved — e.g. Cutting at week 1" read badly: week 1 doesn't sound like anything
+        // worth rescuing, even when it represents a fully configured program and real setup work.
+        // The wording now leads with what's actually at stake (your program and settings) and
+        // treats the per-program detail as supporting information rather than the headline.
         props.summary.length > 0
-          ? "This device looks new, but your account already has progress saved \u2014 e.g. " +
-            props.summary.map(function (s) { return s.key.charAt(0).toUpperCase() + s.key.slice(1) + " at week " + s.week; }).join(", ") +
-            ". Restore it here?"
-          : "This device looks new, but your account already has your saved setup \u2014 your program and settings. Restore it here?"),
-      h("p", { style: { fontSize: 11, color: "#737373", margin: "0 0 16px" } },
-        "Only choose \u201cStart fresh\u201d if you actually mean to begin a new, separate history on this device."),
+          ? "This device looks new, but your account already has your program and history saved \u2014 including " +
+            props.summary.map(function (s) { return s.key.charAt(0).toUpperCase() + s.key.slice(1) + ", week " + s.week; }).join(", ") +
+            "."
+          : "This device looks new, but your account already has your saved program and settings."),
+      h("p", { style: { fontSize: 13, color: "#d4d4d4", lineHeight: 1.5, margin: "0 0 10px" } },
+        "Restoring copies it onto this device."),
+      // The old copy said only that "Start fresh" begins a separate history — true, but it left out
+      // the part that actually matters: this device then becomes the copy of record and overwrites
+      // the saved one within seconds. Someone who just lost a phone is the likeliest person to be
+      // reading this and the least able to afford guessing wrong, so it says so plainly.
+      h("p", { style: { fontSize: 11, color: "#f0b429", margin: "0 0 16px", lineHeight: 1.5 } },
+        "\u26a0 \u201cStart fresh\u201d erases the saved copy. This device replaces it, and the data above can't be recovered afterwards. Only choose it if you really mean to start over."),
       h("div", { style: { display: "flex", gap: 8 } },
         h("button", {
           className: "ex-action-btn", style: { flex: 1, background: "#1d4ed8", color: "#fff", borderColor: "#1d4ed8" },
@@ -6002,7 +5966,19 @@ function FreshDeviceRestorePrompt(props) {
             props.onRestore().finally(function () { props.onDismiss(); });
           },
         }, restoring ? "Restoring\u2026" : "Restore my data"),
-        h("button", { className: "ex-action-btn", style: { flex: "0 0 auto" }, onClick: props.onDismiss }, "Start fresh")
+        // Start fresh sits next to Restore and is one tap away from it, but the two are not
+        // symmetrical: Restore is reversible (the cloud copy survives, and this device can always
+        // sync back up), while Start fresh destroys the saved copy within seconds and can't be
+        // undone. A confirm on the destructive one only — putting a dialog in front of Restore
+        // would be friction on the path most people should be taking.
+        h("button", {
+          className: "ex-action-btn", style: { flex: "0 0 auto", borderColor: "#f87171", color: "#f87171" },
+          disabled: restoring,
+          onClick: function () {
+            if (!window.confirm("Erase the saved copy in your account and start over on this device? Your saved program and history can't be recovered after this.")) return;
+            props.onDismiss();
+          },
+        }, "Start fresh")
       )
     )
   );
