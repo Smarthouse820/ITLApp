@@ -2435,6 +2435,7 @@ function App() {
   const isDeloadWeek = prog.currentWeek % 5 === 0 || (prog.extraDeloadWeeks || []).indexOf(prog.currentWeek) !== -1;
   // Digest inputs — reuses the exact same phase/deload logic already driving RIR and volume-increase
   // elsewhere, so this can never disagree with what those actually do.
+  const phaseNumber = Math.ceil(prog.currentWeek / 5); // same formula the Milestone Tracker already uses for its own "Phase N" labels
   const phaseWeekPosition = computePhaseWeeks(prog.currentWeek, prog.extraDeloadWeeks).length; // 0 on a deload week itself
   const weeksToDeload = weeksUntilNextDeload(prog.currentWeek, prog.extraDeloadWeeks);
   const pendingDeloadRec = !!prog.deloadRecommendation;
@@ -3283,7 +3284,7 @@ function App() {
         // it can't disagree with what those actually do. Suppressed on the deload week itself since
         // "Phase week 0 of 4" would read oddly right next to the DELOAD banner above.
         h("p", { style: { fontSize: 12, color: "#a3a3a3", margin: "2px 0 0" } },
-          !isDeloadWeek && "Phase week " + phaseWeekPosition + " of " + RIR_PHASE_LENGTH +
+          !isDeloadWeek && "Phase " + phaseNumber + " \u00b7 week " + phaseWeekPosition + " of " + RIR_PHASE_LENGTH +
             (weeksToDeload === 0 ? " · deload next week" : weeksToDeload != null ? " · " + weeksToDeload + " to deload" : ""),
           pendingDeloadRec && h("span", { style: { color: "#f0b429", marginLeft: 8 } }, "\u25c6 Deload suggested"),
           pendingVolumeRecCount > 0 && h("span", { style: { color: "#4eba6f", marginLeft: 8 } },
