@@ -2376,7 +2376,7 @@ function formatRelativeTime(date) {
 }
 
 function App() {
-  const APP_VERSION = "2026-07-24T20:45:00";
+  const APP_VERSION = "2026-07-24T21:20:00";
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useEffect(function () {
     function checkVersion() {
@@ -2776,6 +2776,32 @@ function App() {
           setFreshDeviceCheckDone(true);
         }
       });
+  }, [session]);
+
+  // ---- Program access level ----
+  // The case study deliberately restricts participants to the Custom program — Cutting, Cruise and
+  // Hypertrophy are built around one specific person's plan and aren't part of the study. That
+  // restriction used to be hardcoded for everyone, which also locked out the coordinator. It's now
+  // a per-account flag on the profiles row.
+  //
+  // null = not yet known. Deliberately distinguished from false so the UI can wait rather than
+  // flashing "this program isn't available" at a coordinator who does have access, on every load.
+  //
+  // FAILS CLOSED: any error — missing column, offline, no profile row — resolves to false, so a
+  // failure restricts rather than grants. Note this is a PRODUCT restriction, not a security
+  // boundary: it's enforced in the client, so someone determined could edit the JS and flip it.
+  // That's an acceptable trade here (the "hidden" programs are just another training plan, not
+  // anyone else's data — RLS still protects that), but it should not be mistaken for access control.
+  const [fullProgramAccess, setFullProgramAccess] = useState(null);
+  useEffect(function () {
+    if (!session) { setFullProgramAccess(null); return; }
+    let cancelled = false;
+    supabaseClient.from("profiles").select("full_program_access").eq("id", session.user.id).single()
+      .then(function (result) {
+        if (cancelled) return;
+        setFullProgramAccess(!result.error && result.data ? !!result.data.full_program_access : false);
+      });
+    return function () { cancelled = true; };
   }, [session]);
 
   // ---- Withings ----
@@ -4040,8 +4066,14 @@ function App() {
       ),
       h("button", { onClick: skipRestTimer }, "Skip")
     ),
-    data.activeProgram !== "custom"
-      ? h("main", null, h(CoordinatorPlaceholder, { programLabel: def.label }))
+    (data.activeProgram !== "custom" && fullProgramAccess !== true)
+      ? h("main", null,
+          // Waiting on the access check rather than assuming the restriction applies — otherwise a
+          // coordinator on Cutting sees "isn't available in this version" flash before it corrects
+          // itself, which reads as a broken app rather than a moment of latency.
+          fullProgramAccess === null
+            ? h("div", { style: { textAlign: "center", padding: "60px 24px", color: "#737373", fontSize: 13 } }, "Loading\u2026")
+            : h(CoordinatorPlaceholder, { programLabel: def.label }))
       : def.needsSetup
       ? h("main", null, h(CustomSetupWizard, { onComplete: completeCustomSetup, allFoods: allFoods }))
       : h(React.Fragment, null,
