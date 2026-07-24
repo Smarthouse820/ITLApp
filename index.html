@@ -2376,7 +2376,7 @@ function formatRelativeTime(date) {
 }
 
 function App() {
-  const APP_VERSION = "2026-07-24T21:20:00";
+  const APP_VERSION = "2026-07-24T21:40:00";
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useEffect(function () {
     function checkVersion() {
@@ -4066,7 +4066,31 @@ function App() {
       ),
       h("button", { onClick: skipRestTimer }, "Skip")
     ),
-    (data.activeProgram !== "custom" && fullProgramAccess !== true)
+    // Settings is checked BEFORE the program gate and the setup wizard, deliberately.
+    //
+    // It used to render only inside the third branch below — the fully-set-up Custom program —
+    // which meant the gear did nothing at all for anyone on a restricted program or partway
+    // through the wizard. That was survivable when Settings held preferences. It isn't now:
+    // Settings is where the Account section lives, so a participant who signed up and hadn't
+    // finished setup could not sign out, could not restore from cloud, and had no way to reach
+    // anything. Settings has to be the one screen that's always available.
+    tab === "settings"
+      ? h("main", null, h(SettingsTab, {
+          session: session, authChecked: authChecked, signUpWithEmail: signUpWithEmail, signInWithEmail: signInWithEmail, signOut: signOut,
+          backupToSupabase: backupToSupabaseManual, restoreFromSupabase: restoreFromSupabase,
+          syncStatus: syncStatus, lastSyncedAt: lastSyncedAt,
+          pushSettings: data.pushSettings, updatePushSettings: updatePushSettings,
+          reminderTimes: data.reminderTimes, updateReminderTimes: updateReminderTimes, toggleTrainingDay: toggleTrainingDay,
+          isCustomProgram: def.needsSetup === false && data.activeProgram === "custom",
+          isSharedProgram: isSharedProgram, activeProgramLabel: def.label, rirModeEnabled: rirModeEnabled, rirModePendingEnable: rirModePendingEnable, toggleRirMode: toggleRirMode,
+          withingsStatus: withingsStatus, connectWithings: connectWithings, disconnectWithings: disconnectWithings,
+          applyWithingsWeighIn: applyWithingsWeighIn, applyWithingsMilestone: applyWithingsMilestone,
+          showEditProgramSettings: showEditProgramSettings, setShowEditProgramSettings: setShowEditProgramSettings,
+          resetCustomSetup: resetCustomSetup, customProgramConfig: data.customProgramConfig, updateProgramSettings: updateProgramSettings,
+          uiPrefs: data.uiPrefs, updateUiPrefs: updateUiPrefs,
+          exportData: exportData, importData: importData, resetAll: resetAll,
+        }))
+      : (data.activeProgram !== "custom" && fullProgramAccess !== true)
       ? h("main", null,
           // Waiting on the access check rather than assuming the restriction applies — otherwise a
           // coordinator on Cutting sees "isn't available in this version" flash before it corrects
@@ -4141,21 +4165,6 @@ function App() {
               list: groceryList, checked: groceryChecked, toggle: toggleGrocery, reset: resetGroceryList,
               rotationWeek: rotationWeek, displayWeek: groceryDisplayWeek, viewWeek: groceryViewWeek, setViewWeek: setGroceryViewWeek,
               hasOverride: groceryHasOverride,
-            }),
-            tab === "settings" && h(SettingsTab, {
-              session: session, authChecked: authChecked, signUpWithEmail: signUpWithEmail, signInWithEmail: signInWithEmail, signOut: signOut,
-              backupToSupabase: backupToSupabaseManual, restoreFromSupabase: restoreFromSupabase,
-              syncStatus: syncStatus, lastSyncedAt: lastSyncedAt,
-              pushSettings: data.pushSettings, updatePushSettings: updatePushSettings,
-              reminderTimes: data.reminderTimes, updateReminderTimes: updateReminderTimes, toggleTrainingDay: toggleTrainingDay,
-              isCustomProgram: def.needsSetup === false && data.activeProgram === "custom",
-              isSharedProgram: isSharedProgram, activeProgramLabel: def.label, rirModeEnabled: rirModeEnabled, rirModePendingEnable: rirModePendingEnable, toggleRirMode: toggleRirMode,
-              withingsStatus: withingsStatus, connectWithings: connectWithings, disconnectWithings: disconnectWithings,
-              applyWithingsWeighIn: applyWithingsWeighIn, applyWithingsMilestone: applyWithingsMilestone,
-              showEditProgramSettings: showEditProgramSettings, setShowEditProgramSettings: setShowEditProgramSettings,
-              resetCustomSetup: resetCustomSetup, customProgramConfig: data.customProgramConfig, updateProgramSettings: updateProgramSettings,
-              uiPrefs: data.uiPrefs, updateUiPrefs: updateUiPrefs,
-              exportData: exportData, importData: importData, resetAll: resetAll,
             })
           ),
           h("nav", { className: "navbar" },
