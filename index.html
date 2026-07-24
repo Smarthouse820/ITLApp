@@ -1979,6 +1979,30 @@ function getOrCreatePushId() {
   return id;
 }
 
+// ---- Withings integration ----
+// Reuses the same device id push notifications already use — no separate identity needed, and it
+// keeps the Worker's KV entries for this device (subscription + Withings tokens) trivially linkable
+// if that's ever useful. The Client ID is public by OAuth2 design (same treatment as VAPID_PUBLIC_KEY);
+// only the Client Secret is sensitive, and that never leaves the Worker.
+const WITHINGS_CLIENT_ID = "49e01585844984ff5ab19e656fa20de7cab9f8a1f96f2bcc95b00e9e0ccf7cc6";
+
+// Redirects the browser to Withings' own login/consent page — safe to build entirely client-side
+// since only the public Client ID is involved. `state` carries this device's id and the exact URL
+// to return to (this page, stripped of any existing query string) through the OAuth round-trip;
+// Withings echoes it back unmodified to the Worker's /withings/callback.
+function connectWithings() {
+  const returnUrl = window.location.origin + window.location.pathname;
+  const state = btoa(JSON.stringify({ id: getOrCreatePushId(), returnUrl: returnUrl }));
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: WITHINGS_CLIENT_ID,
+    redirect_uri: PUSH_WORKER_URL + "/withings/callback",
+    scope: "user.metrics",
+    state: state,
+  });
+  window.location.href = "https://account.withings.com/oauth2_user/authorize2?" + params.toString();
+}
+
 // minutes-from-midnight -> "HH:MM" (24h, zero-padded) for the Worker's parseHHMM.
 function minutesToHHMM(mins) {
   const hh = Math.floor(mins / 60), mm = mins % 60;
@@ -2245,6 +2269,48 @@ function App() {
   useEffect(function () {
     if (data.pushSettings && data.pushSettings.enabled) syncPushSchedule(data);
   }, [pushScheduleKey]);
+
+  // ---- Withings ----
+  const [withingsStatus, setWithingsStatus] = useState(null); // null = not yet checked; {connected, latest}
+  function refreshWithingsStatus() {
+    fetch(PUSH_WORKER_URL + "/withings/latest?id=" + getOrCreatePushId())
+      .then(function (r) { return r.json(); })
+      .then(function (json) { setWithingsStatus(json); })
+      .catch(function () { /* leave whatever was last known — a network hiccup shouldn't blank the UI */ });
+  }
+  // Runs once on load: picks up the ?withings=connected|error the OAuth redirect leaves behind,
+  // shows a toast either way, then strips it from the URL so refreshing doesn't re-trigger it —
+  // and pulls the current connection status regardless (covers a fresh connect AND just reopening
+  // the app on a device that was already connected).
+  useEffect(function () {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("withings")) {
+      const result = params.get("withings");
+      showToast(result === "connected" ? "Withings connected" : "Withings connection failed — try again");
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+    refreshWithingsStatus();
+  }, []);
+  function disconnectWithings() {
+    fetch(PUSH_WORKER_URL + "/withings/disconnect", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: getOrCreatePushId() }),
+    }).then(function () { setWithingsStatus({ connected: false }); showToast("Withings disconnected"); });
+  }
+  // Applying a synced reading is always an explicit tap, never automatic — same principle as every
+  // other suggestion in this app (deload, volume increase): the person confirms, nothing silently
+  // overwrites what they've logged themselves.
+  function applyWithingsWeighIn() {
+    if (!withingsStatus || !withingsStatus.latest) return;
+    logDailyWeight(Math.round(withingsStatus.latest.weightLb * 10) / 10);
+    showToast("Applied to today's weigh-in");
+  }
+  function applyWithingsMilestone() {
+    if (!withingsStatus || !withingsStatus.latest) return;
+    if (withingsStatus.latest.weightLb != null) setMilestoneActual(prog.currentWeek, "weight", Math.round(withingsStatus.latest.weightLb * 10) / 10);
+    if (withingsStatus.latest.fatRatioPct != null) setMilestoneActual(prog.currentWeek, "bf", Math.round(withingsStatus.latest.fatRatioPct * 10) / 10);
+    showToast("Applied to this week's check-in");
+  }
 
   // Persists manual collapse/expand toggles (Sleep, Supplements box, Your/Unscheduled Supplements)
   // so they stay exactly as left across tab switches, rather than resetting on every remount.
@@ -3226,6 +3292,8 @@ function App() {
               reminderTimes: data.reminderTimes, updateReminderTimes: updateReminderTimes, toggleTrainingDay: toggleTrainingDay,
               isCustomProgram: def.needsSetup === false && data.activeProgram === "custom",
               isSharedProgram: isSharedProgram, activeProgramLabel: def.label, rirModeEnabled: rirModeEnabled, rirModePendingEnable: rirModePendingEnable, toggleRirMode: toggleRirMode,
+              withingsStatus: withingsStatus, connectWithings: connectWithings, disconnectWithings: disconnectWithings,
+              applyWithingsWeighIn: applyWithingsWeighIn, applyWithingsMilestone: applyWithingsMilestone,
               showEditProgramSettings: showEditProgramSettings, setShowEditProgramSettings: setShowEditProgramSettings,
               resetCustomSetup: resetCustomSetup,
               uiPrefs: data.uiPrefs, updateUiPrefs: updateUiPrefs,
@@ -4845,15 +4913,29 @@ function SettingsTab(props) {
     ),
 
     // ---- Integrations (placeholder — wearables and smart scale are backlog items, not built) ----
-    h(SettingsSection, { id: "integrations", title: "Integrations", status: "None connected", uiPrefs: props.uiPrefs, updateUiPrefs: props.updateUiPrefs },
+    h(SettingsSection, { id: "integrations", title: "Integrations", status: (props.withingsStatus && props.withingsStatus.connected) ? "Withings connected" : "None connected", uiPrefs: props.uiPrefs, updateUiPrefs: props.updateUiPrefs },
       h(SettingsRow, null, h("div", null,
         h("div", { style: { fontSize: 13 } }, "Wearable (HRV, recovery)"),
         h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "Whoop, Oura, Garmin, Apple Watch")),
         h("span", { style: { fontSize: 11, color: "#525252", border: "1px solid #333", borderRadius: 20, padding: "2px 8px" } }, "Coming soon")),
-      h(SettingsRow, { style: { borderBottom: "none" } }, h("div", null,
+      h(SettingsRow, { style: (props.withingsStatus && props.withingsStatus.connected) ? {} : { borderBottom: "none" } }, h("div", null,
         h("div", { style: { fontSize: 13 } }, "Smart scale"),
         h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "Withings \u2014 weight and body fat")),
-        h("span", { style: { fontSize: 11, color: "#525252", border: "1px solid #333", borderRadius: 20, padding: "2px 8px" } }, "Coming soon"))
+        (props.withingsStatus && props.withingsStatus.connected)
+          ? h("button", { className: "ex-action-btn", onClick: props.disconnectWithings }, "Disconnect")
+          : h("button", { className: "ex-action-btn", style: { background: "#1d4ed8", color: "#fff", borderColor: "#1d4ed8" }, onClick: props.connectWithings }, "Connect")),
+      props.withingsStatus && props.withingsStatus.connected && props.withingsStatus.latest && h("div", { style: { borderBottom: "none", padding: "10px 0 0" } },
+        h("p", { style: { fontSize: 11, color: "#737373", margin: "0 0 8px" } },
+          "Last synced: " + (props.withingsStatus.latest.weightLb != null ? Math.round(props.withingsStatus.latest.weightLb * 10) / 10 + " lb" : "") +
+          (props.withingsStatus.latest.fatRatioPct != null ? " \u00b7 " + Math.round(props.withingsStatus.latest.fatRatioPct * 10) / 10 + "% BF" : "") +
+          " \u2014 nothing applies automatically, tap below to use it"),
+        h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+          h("button", { className: "ex-action-btn", style: { flex: "1 1 45%" }, onClick: props.applyWithingsWeighIn }, "Use for today's weigh-in"),
+          h("button", { className: "ex-action-btn", style: { flex: "1 1 45%" }, onClick: props.applyWithingsMilestone }, "Use for this week's check-in")
+        )
+      ),
+      props.withingsStatus && props.withingsStatus.connected && !props.withingsStatus.latest && h("p", { style: { fontSize: 11, color: "#737373", margin: "10px 0 0" } },
+        "Connected — waiting on your first reading from the scale.")
     ),
 
     // ---- Display ----
