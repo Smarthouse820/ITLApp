@@ -2375,8 +2375,41 @@ function formatRelativeTime(date) {
   return date.toLocaleDateString();
 }
 
+// Does a program's saved state show any sign of actual use?
+//
+// Deliberately shared between the "is THIS device empty?" check and the "does the cloud hold
+// anything worth restoring?" check, so the two can never disagree — they're the same question asked
+// in two directions, and having them drift apart is how you get a prompt that offers to restore
+// nothing, or refuses to offer something real.
+//
+// The original version tested only `currentWeek > 1 || logs non-empty`, which missed the most
+// important case: someone who has finished setup but hasn't yet logged a training session. That's
+// exactly the person the restore prompt exists for, since setup is the biggest single investment
+// of effort in onboarding.
+//
+// exerciseState is deliberately NOT checked here — freshProgramState seeds it with a default entry
+// for every exercise, so it's non-empty on a brand-new install and can't distinguish real use from
+// none. Account-level signals (a completed Custom wizard, customised weights) are handled separately
+// in the caller, since they live on the profiles row rather than in any program's state.
+const REAL_USE_BUCKETS = [
+  "logs", "nutritionLogs", "hydrationLogs", "milestoneActuals", "groceryLogs", "skipped",
+  "customMealOverrides", "exerciseDifficulty", "foodLog", "sleepLogs", "dailyWeightLogs",
+  "supplementLogs", "supersetGroups", "exerciseWeekOverrides", "sessionAdjustments",
+  "mealDateOverrides",
+];
+function programStateHasRealData(state) {
+  if (!state) return false;
+  if (state.currentWeek > 1) return true;
+  for (let i = 0; i < REAL_USE_BUCKETS.length; i++) {
+    const bucket = state[REAL_USE_BUCKETS[i]];
+    if (bucket && Object.keys(bucket).length > 0) return true;
+  }
+  if (Array.isArray(state.extraDeloadWeeks) && state.extraDeloadWeeks.length > 0) return true;
+  return false;
+}
+
 function App() {
-  const APP_VERSION = "2026-07-24T21:55:00";
+  const APP_VERSION = "2026-07-24T22:20:00";
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useEffect(function () {
     function checkVersion() {
@@ -2750,24 +2783,44 @@ function App() {
   useEffect(function () {
     if (!session || restorePromptChecked.current) return;
     restorePromptChecked.current = true;
-    const localLooksUntouched = ["cutting", "cruise", "hypertrophy", "custom"].every(function (key) {
-      const p = data.programs[key];
-      return p.currentWeek <= 1 && Object.keys(p.logs || {}).length === 0;
+    // Account-level setup counts as real use even with zero logged sessions: a completed Custom
+    // wizard (customProgramConfig) or customised weights (sharedExerciseState) represent real work
+    // that would be painful to redo, and both live on the profiles row rather than in any program's
+    // state — which is why the cloud side below queries profiles as well as program_states.
+    const localAccountSetup = !!data.customProgramConfig
+      || Object.keys(data.sharedExerciseState || {}).length > 0
+      || (data.supplementList || []).length > 0;
+    const localLooksUntouched = !localAccountSetup && ["cutting", "cruise", "hypertrophy", "custom"].every(function (key) {
+      return !programStateHasRealData(data.programs[key]);
     });
     // Local data is real, so there's nothing to rescue and nothing to wait on — release the backup
     // gate immediately rather than stalling normal syncing behind a check that doesn't apply.
     if (!localLooksUntouched) { setFreshDeviceCheckDone(true); return; }
-    supabaseClient.from("program_states").select("program_key, state").eq("user_id", session.user.id)
-      .then(function (result) {
+    Promise.all([
+      supabaseClient.from("program_states").select("program_key, state").eq("user_id", session.user.id),
+      supabaseClient.from("profiles").select("custom_program_config, shared_exercise_state, supplement_list").eq("id", session.user.id).single(),
+    ])
+      .then(function (results) {
+        const programsResult = results[0];
+        const profileResult = results[1];
         // On a failed lookup, release the gate rather than blocking backups indefinitely. Backing
         // up is the safe default here: local data already looks untouched, so an upload can only
         // overwrite the cloud with an empty state we were unable to prove is worth keeping — and a
         // permanently stalled backup is the worse failure of the two.
-        if (result.error || !result.data) { setFreshDeviceCheckDone(true); return; }
-        const withRealData = result.data.filter(function (row) {
-          return row.state && (row.state.currentWeek > 1 || Object.keys(row.state.logs || {}).length > 0);
+        if (programsResult.error || !programsResult.data) { setFreshDeviceCheckDone(true); return; }
+        const withRealData = programsResult.data.filter(function (row) {
+          return programStateHasRealData(row.state);
         });
-        if (withRealData.length > 0) {
+        const profile = profileResult && !profileResult.error ? profileResult.data : null;
+        const cloudAccountSetup = !!profile && (
+          !!profile.custom_program_config
+          || Object.keys(profile.shared_exercise_state || {}).length > 0
+          || (profile.supplement_list || []).length > 0
+        );
+        if (withRealData.length > 0 || cloudAccountSetup) {
+          // Programs with genuine per-program history are named explicitly. If the only thing worth
+          // restoring is account-level setup, summary comes back empty and the prompt describes it
+          // in general terms instead — better than silently not offering at all.
           setRestorePromptCloudSummary(withRealData.map(function (row) {
             return { key: row.program_key, week: row.state.currentWeek };
           }));
@@ -5929,9 +5982,15 @@ function FreshDeviceRestorePrompt(props) {
     h("div", { style: { background: "#171717", border: "1px solid #404040", borderRadius: 12, padding: 20, maxWidth: 360 } },
       h("h3", { style: { margin: "0 0 10px", fontSize: 16 } }, "Existing data found"),
       h("p", { style: { fontSize: 13, color: "#d4d4d4", lineHeight: 1.5, margin: "0 0 10px" } },
-        "This device looks new, but your account already has progress saved \u2014 e.g. " +
-        props.summary.map(function (s) { return s.key.charAt(0).toUpperCase() + s.key.slice(1) + " at week " + s.week; }).join(", ") +
-        ". Restore it here?"),
+        // summary is empty when the only thing worth restoring is account-level setup — a completed
+        // Custom wizard or customised weights, with no logged sessions yet. Naming nothing specific
+        // is still far better than not offering at all, since redoing setup is exactly the loss this
+        // prompt exists to prevent.
+        props.summary.length > 0
+          ? "This device looks new, but your account already has progress saved \u2014 e.g. " +
+            props.summary.map(function (s) { return s.key.charAt(0).toUpperCase() + s.key.slice(1) + " at week " + s.week; }).join(", ") +
+            ". Restore it here?"
+          : "This device looks new, but your account already has your saved setup \u2014 your program and settings. Restore it here?"),
       h("p", { style: { fontSize: 11, color: "#737373", margin: "0 0 16px" } },
         "Only choose \u201cStart fresh\u201d if you actually mean to begin a new, separate history on this device."),
       h("div", { style: { display: "flex", gap: 8 } },
