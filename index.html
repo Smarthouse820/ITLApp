@@ -12,6 +12,7 @@
 <link rel="manifest" href="manifest.json">
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; overflow-x: hidden;
@@ -2003,6 +2004,19 @@ function connectWithings() {
   window.location.href = "https://account.withings.com/oauth2_user/authorize2?" + params.toString();
 }
 
+// ---- Supabase (accounts + cloud backup) ----
+// This is the FIRST slice of the accounts rebuild — proving login/signup work in isolation,
+// before anything about how program data is actually read or written changes. The app still
+// reads and writes localStorage exactly as it always has; a signed-in session doesn't yet do
+// anything beyond existing as a fact. Wiring the actual data layer to Supabase is a deliberately
+// separate, later step, once this piece is proven solid on its own.
+// The URL and anon/public key are both meant to be public — same treatment as VAPID_PUBLIC_KEY
+// and WITHINGS_CLIENT_ID. Row-Level Security (already enabled in the schema) is what actually
+// keeps one person's data private from another, not secrecy of this key.
+const SUPABASE_URL = "https://pdnvupqbbvhfcgnzflxi.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_81uOOJ29MOGsimO9mdCfzQ_DkCczKYR";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 // minutes-from-midnight -> "HH:MM" (24h, zero-padded) for the Worker's parseHHMM.
 function minutesToHHMM(mins) {
   const hh = Math.floor(mins / 60), mm = mins % 60;
@@ -2269,6 +2283,35 @@ function App() {
   useEffect(function () {
     if (data.pushSettings && data.pushSettings.enabled) syncPushSchedule(data);
   }, [pushScheduleKey]);
+
+  // ---- Account (Supabase auth) ----
+  // authChecked distinguishes "still finding out if there's a session" from "checked, and there
+  // isn't one" — without it, a signed-in returning visitor would flash a "not signed in" state for
+  // a moment on every load before the real session comes back.
+  const [session, setSession] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  useEffect(function () {
+    supabaseClient.auth.getSession().then(function (result) {
+      setSession(result.data.session);
+      setAuthChecked(true);
+    });
+    // Keeps this in sync with sign-in/sign-out/token-refresh happening anywhere (including a
+    // magic-link tab, or a token silently refreshing in the background) — not just the direct
+    // result of a button the user just clicked in this tab.
+    const { data: authListener } = supabaseClient.auth.onAuthStateChange(function (event, newSession) {
+      setSession(newSession);
+    });
+    return function () { authListener.subscription.unsubscribe(); };
+  }, []);
+  function signUpWithEmail(email, password) {
+    return supabaseClient.auth.signUp({ email: email, password: password });
+  }
+  function signInWithEmail(email, password) {
+    return supabaseClient.auth.signInWithPassword({ email: email, password: password });
+  }
+  function signOut() {
+    return supabaseClient.auth.signOut();
+  }
 
   // ---- Withings ----
   const [withingsStatus, setWithingsStatus] = useState(null); // null = not yet checked; {connected, latest}
@@ -3293,6 +3336,7 @@ function App() {
               isCustomProgram: def.needsSetup === false && data.activeProgram === "custom",
               isSharedProgram: isSharedProgram, activeProgramLabel: def.label, rirModeEnabled: rirModeEnabled, rirModePendingEnable: rirModePendingEnable, toggleRirMode: toggleRirMode,
               withingsStatus: withingsStatus, connectWithings: connectWithings, disconnectWithings: disconnectWithings,
+              session: session, authChecked: authChecked, signUpWithEmail: signUpWithEmail, signInWithEmail: signInWithEmail, signOut: signOut,
               applyWithingsWeighIn: applyWithingsWeighIn, applyWithingsMilestone: applyWithingsMilestone,
               showEditProgramSettings: showEditProgramSettings, setShowEditProgramSettings: setShowEditProgramSettings,
               resetCustomSetup: resetCustomSetup,
@@ -4865,6 +4909,79 @@ function SettingsSection(props) {
   );
 }
 
+// Self-contained sign-up/sign-in/sign-out panel for the Account settings section. Deliberately
+// plain email + password for this first slice — magic links or social login can be layered on
+// later without disrupting anyone already using this. Doesn't touch any program data itself; it
+// only proves the account layer works in isolation before anything reads/writes to it.
+function AccountAuthPanel(props) {
+  const [mode, setMode] = useState("signin"); // "signin" | "signup"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [signupSent, setSignupSent] = useState(false);
+
+  if (!props.authChecked) {
+    return h("p", { style: { fontSize: 12, color: "#737373" } }, "Checking sign-in status\u2026");
+  }
+
+  if (props.session) {
+    return h("div", null,
+      h("p", { style: { fontSize: 13, margin: "0 0 10px" } }, "Signed in as " + props.session.user.email),
+      h("button", {
+        className: "ex-action-btn",
+        onClick: function () { props.signOut(); },
+      }, "Sign out")
+    );
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!email || !password) { setError("Enter both an email and a password."); return; }
+    setError("");
+    setLoading(true);
+    const action = mode === "signup" ? props.signUpWithEmail(email, password) : props.signInWithEmail(email, password);
+    action.then(function (result) {
+      setLoading(false);
+      if (result.error) { setError(result.error.message); return; }
+      if (mode === "signup" && !result.data.session) {
+        // Email confirmation is on by default for a new Supabase project — no session yet until
+        // the person clicks the link in their inbox. Signing in later (once confirmed) is what
+        // actually establishes the session; this isn't a failure, just the expected next step.
+        setSignupSent(true);
+      }
+    });
+  }
+
+  if (signupSent) {
+    return h("p", { style: { fontSize: 12, color: "#4eba6f" } },
+      "Check " + email + " for a confirmation link, then come back and sign in.");
+  }
+
+  return h("form", { onSubmit: handleSubmit },
+    h("input", {
+      type: "email", placeholder: "Email", value: email, autoComplete: "email",
+      onChange: function (e) { setEmail(e.target.value); },
+      style: { width: "100%", background: "#0a0a0a", border: "1px solid #404040", borderRadius: 8, padding: "8px 10px", fontSize: 13, color: "#f5f5f5", marginBottom: 8 },
+    }),
+    h("input", {
+      type: "password", placeholder: "Password", value: password, autoComplete: mode === "signup" ? "new-password" : "current-password",
+      onChange: function (e) { setPassword(e.target.value); },
+      style: { width: "100%", background: "#0a0a0a", border: "1px solid #404040", borderRadius: 8, padding: "8px 10px", fontSize: 13, color: "#f5f5f5", marginBottom: 8 },
+    }),
+    error && h("p", { style: { fontSize: 12, color: "#f87171", margin: "0 0 8px" } }, error),
+    h("div", { style: { display: "flex", gap: 8 } },
+      h("button", {
+        type: "submit", className: "ex-action-btn", style: { flex: 1, background: "#1d4ed8", color: "#fff", borderColor: "#1d4ed8" }, disabled: loading,
+      }, loading ? "\u2026" : mode === "signup" ? "Create account" : "Sign in"),
+      h("button", {
+        type: "button", className: "ex-action-btn", style: { flex: "0 0 auto" },
+        onClick: function () { setMode(mode === "signup" ? "signin" : "signup"); setError(""); },
+      }, mode === "signup" ? "Have an account?" : "New here?")
+    )
+  );
+}
+
 function SettingsRow(props) {
   return h("div", { style: Object.assign({ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #262626" }, props.style || {}) }, props.children);
 }
@@ -4892,13 +5009,13 @@ function SettingsTab(props) {
 
   return h("div", { style: { padding: "12px 16px" } },
     // ---- Account (placeholder — no login/sync built yet) ----
-    h(SettingsSection, { id: "account", title: "Account", status: "Not signed in", uiPrefs: props.uiPrefs, updateUiPrefs: props.updateUiPrefs },
-      h(SettingsRow, null, h("div", null,
-        h("div", { style: { fontSize: 13 } }, "Create account"),
-        h("div", { style: { fontSize: 11, color: "#737373", marginTop: 2 } }, "Sync across devices, coordinator access")),
-        h("span", { style: { fontSize: 11, color: "#525252", border: "1px solid #333", borderRadius: 20, padding: "2px 8px" } }, "Coming soon")),
-      h(SettingsRow, { style: { borderBottom: "none" } }, h("span", { style: { fontSize: 13 } }, "Sign in"),
-        h("span", { style: { fontSize: 11, color: "#525252", border: "1px solid #333", borderRadius: 20, padding: "2px 8px" } }, "Coming soon"))
+    h(SettingsSection, { id: "account", title: "Account", status: (props.session ? props.session.user.email : "Not signed in"), uiPrefs: props.uiPrefs, updateUiPrefs: props.updateUiPrefs },
+      h(AccountAuthPanel, {
+        session: props.session, authChecked: props.authChecked,
+        signUpWithEmail: props.signUpWithEmail, signInWithEmail: props.signInWithEmail, signOut: props.signOut,
+      }),
+      h("p", { style: { fontSize: 11, color: "#737373", margin: "10px 0 0" } },
+        "This creates your account, but doesn't move any of your data yet \u2014 everything you see in the app still lives only on this device, exactly as before. Cloud sync is a separate step, coming next.")
     ),
 
     // ---- Reminders — master switch owns the subscription; the three category flags just decide
