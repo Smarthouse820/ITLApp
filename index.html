@@ -2023,6 +2023,19 @@ function minutesToHHMM(mins) {
   return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
 }
 
+// "just now" / "3 minutes ago" / "2 hours ago" / a plain date past a day — used only for the
+// account section's quiet sync-status line, so it deliberately doesn't try to handle every
+// possible span (weeks, months); a plain date is a perfectly fine fallback that far out.
+function formatRelativeTime(date) {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 45) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes + " minute" + (minutes === 1 ? "" : "s") + " ago";
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + " hour" + (hours === 1 ? "" : "s") + " ago";
+  return date.toLocaleDateString();
+}
+
 // Builds the schedule array the Worker checks every 15 min, from the app's own data. Reuses
 // parseMealTimeToMinutes (handles "4:00 AM", "12:00 PM", the "5:45-7:00 AM" range -> start, and
 // 24h "20:30" supplement times). MERGE MODE: entries at the same time collapse into a single
@@ -2313,9 +2326,13 @@ function App() {
     return supabaseClient.auth.signOut();
   }
   // Uploads a snapshot of everything currently on THIS device into the signed-in account's rows —
-  // purely additive. The app still reads from and writes to localStorage exactly as before; this
-  // doesn't change that. An explicit, deliberate action (never automatic), matching every other
-  // consequential action in this app — nothing about a real backup should ever happen silently.
+  // purely additive, never destructive: the app still reads from and writes to localStorage exactly
+  // as before, and nothing is ever lost by this running too often, only by it not running at all.
+  // Deliberately silent (no toast) — this now runs both from an explicit manual tap AND
+  // automatically in the background (see the debounced effect below), and a toast firing every
+  // few seconds of normal use would be constant noise. The manual button surfaces its own
+  // confirmation via backupToSupabaseManual below; automatic syncs surface success/failure only
+  // through the quiet "Last synced" status line.
   function backupToSupabase() {
     if (!session) return Promise.reject(new Error("Not signed in"));
     const userId = session.user.id;
@@ -2341,9 +2358,88 @@ function App() {
     });
     return Promise.all([profileUpsert].concat(programUpserts)).then(function (results) {
       const failed = results.find(function (r) { return r.error; });
-      if (failed) { showToast("Backup failed \u2014 try again"); throw failed.error; }
-      showToast("Backed up to your account");
+      if (failed) throw failed.error;
       return true;
+    });
+  }
+  // Thin wrapper for the manual "Back up to cloud now" button specifically — same underlying
+  // upload, just with the toast confirmation a deliberate manual tap should still get.
+  function backupToSupabaseManual() {
+    return backupToSupabase().then(function (result) {
+      showToast("Backed up to your account");
+      return result;
+    }).catch(function (err) {
+      showToast("Backup failed \u2014 try again");
+      throw err;
+    });
+  }
+  // Automatic background backup — debounced so a burst of activity (logging several sets in a
+  // row, typing in a field) collapses into ONE sync after things settle, rather than firing on
+  // every single keystroke or tap. Silent on success (see backupToSupabase above); syncStatus only
+  // exists to power the quiet "Last synced" status line, not to interrupt anyone with a toast
+  // every few seconds of normal use.
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [syncStatus, setSyncStatus] = useState("idle"); // "idle" | "syncing" | "error"
+  const autoSyncTimer = useRef(null);
+  useEffect(function () {
+    if (!session) return; // nothing to sync to if signed out
+    if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
+    autoSyncTimer.current = setTimeout(function () {
+      setSyncStatus("syncing");
+      backupToSupabase().then(function () {
+        setSyncStatus("idle");
+        setLastSyncedAt(new Date());
+      }).catch(function () {
+        setSyncStatus("error");
+      });
+    }, 4000);
+    return function () { if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current); };
+  }, [data, session]);
+  // Pulls the account's stored data down and OVERWRITES whatever is currently on this device —
+  // the mirror image of backupToSupabase, and the more consequential direction: backup only adds
+  // to the cloud, this replaces what's local. Routes the fetched data through normalizeV2, the
+  // exact same function loadData() already uses on every normal startup, so a field the schema
+  // hasn't seen yet or a program with genuinely no saved state gets the same safe defaults it
+  // would on a fresh install — no separate, second normalization path to keep in sync.
+  function restoreFromSupabase() {
+    if (!session) return Promise.reject(new Error("Not signed in"));
+    const userId = session.user.id;
+    return Promise.all([
+      supabaseClient.from("profiles").select("*").eq("id", userId).single(),
+      supabaseClient.from("program_states").select("*").eq("user_id", userId),
+    ]).then(function (results) {
+      const profileResult = results[0];
+      const programsResult = results[1];
+      if (profileResult.error) throw profileResult.error;
+      if (programsResult.error) throw programsResult.error;
+      const profile = profileResult.data;
+      const programsByKey = {};
+      (programsResult.data || []).forEach(function (row) { programsByKey[row.program_key] = row.state; });
+      const restored = {
+        activeProgram: profile.active_program,
+        likedFoods: profile.liked_foods,
+        customFoods: profile.custom_foods,
+        customProgramConfig: profile.custom_program_config,
+        supplementList: profile.supplement_list,
+        restTimerSettings: profile.rest_timer_settings,
+        pushSettings: profile.push_settings,
+        reminderTimes: profile.reminder_times,
+        sharedExerciseState: profile.shared_exercise_state,
+        sharedRirModeEnabled: profile.shared_rir_mode_enabled,
+        uiPrefs: profile.ui_prefs,
+        programs: {
+          cutting: programsByKey.cutting || {},
+          cruise: programsByKey.cruise || {},
+          hypertrophy: programsByKey.hypertrophy || {},
+          custom: programsByKey.custom || {},
+        },
+      };
+      save(normalizeV2(restored));
+      showToast("Restored from your account");
+      return true;
+    }).catch(function (err) {
+      showToast("Restore failed \u2014 try again");
+      throw err;
     });
   }
 
@@ -3372,7 +3468,8 @@ function App() {
               isSharedProgram: isSharedProgram, activeProgramLabel: def.label, rirModeEnabled: rirModeEnabled, rirModePendingEnable: rirModePendingEnable, toggleRirMode: toggleRirMode,
               withingsStatus: withingsStatus, connectWithings: connectWithings, disconnectWithings: disconnectWithings,
               session: session, authChecked: authChecked, signUpWithEmail: signUpWithEmail, signInWithEmail: signInWithEmail, signOut: signOut,
-              backupToSupabase: backupToSupabase,
+              backupToSupabase: backupToSupabaseManual, restoreFromSupabase: restoreFromSupabase,
+              lastSyncedAt: lastSyncedAt, syncStatus: syncStatus,
               applyWithingsWeighIn: applyWithingsWeighIn, applyWithingsMilestone: applyWithingsMilestone,
               showEditProgramSettings: showEditProgramSettings, setShowEditProgramSettings: setShowEditProgramSettings,
               resetCustomSetup: resetCustomSetup,
@@ -5018,20 +5115,21 @@ function AccountAuthPanel(props) {
   );
 }
 
-// Self-contained "back up now" button — its own loading state so a slow connection can't be
-// mistaken for a silent no-op, and a confirm() gate since this is a real, deliberate action
-// (uploading everything currently on this device to the account), not something to trigger by
-// accident with a stray tap.
-function BackupToCloudButton(props) {
+// Self-contained cloud-sync action button — its own loading state so a slow connection can't be
+// mistaken for a silent no-op, and a confirm() gate since both directions this drives (backup,
+// restore) are real, deliberate actions, not something to trigger by accident with a stray tap.
+// Shared between backup and restore rather than two near-identical components, since the only
+// difference between them is the message and what gets called — not the mechanics.
+function CloudSyncButton(props) {
   const [loading, setLoading] = useState(false);
   return h("button", {
-    className: "ex-action-btn", style: { width: "100%", marginTop: 10 }, disabled: loading,
+    className: "ex-action-btn", style: Object.assign({ width: "100%", marginTop: 10 }, props.danger ? { borderColor: "#f87171", color: "#f87171" } : {}), disabled: loading,
     onClick: function () {
-      if (!window.confirm("Upload everything currently on this device to your account? This doesn't change how the app works right now — it's a backup, not a switch to cloud storage.")) return;
+      if (props.confirmMessage && !window.confirm(props.confirmMessage)) return;
       setLoading(true);
-      props.onBackup().finally(function () { setLoading(false); });
+      props.onAction().finally(function () { setLoading(false); });
     },
-  }, loading ? "Backing up\u2026" : "Back up to cloud now");
+  }, loading ? props.loadingLabel : props.label);
 }
 
 function SettingsRow(props) {
@@ -5066,10 +5164,26 @@ function SettingsTab(props) {
         session: props.session, authChecked: props.authChecked,
         signUpWithEmail: props.signUpWithEmail, signInWithEmail: props.signInWithEmail, signOut: props.signOut,
       }),
-      props.session && h(BackupToCloudButton, { onBackup: props.backupToSupabase }),
+      // Backup now runs automatically in the background (debounced ~4s after any change) — this
+      // status line is the only ongoing visibility into that, since the automatic path is
+      // deliberately silent to avoid a toast firing every few seconds of normal use.
+      props.session && h("p", { style: { fontSize: 11, color: props.syncStatus === "error" ? "#f87171" : "#737373", margin: "10px 0 0" } },
+        props.syncStatus === "syncing" ? "Syncing\u2026"
+          : props.syncStatus === "error" ? "Last sync failed \u2014 will retry automatically"
+          : props.lastSyncedAt ? "Last synced " + formatRelativeTime(props.lastSyncedAt)
+          : "Not yet synced this session"),
+      props.session && h(CloudSyncButton, {
+        onAction: props.backupToSupabase,
+        label: "Sync now", loadingLabel: "Syncing\u2026",
+      }),
+      props.session && h(CloudSyncButton, {
+        onAction: props.restoreFromSupabase, danger: true,
+        label: "Restore from cloud", loadingLabel: "Restoring\u2026",
+        confirmMessage: "Overwrite everything on THIS device with what's saved in your account? Only do this if this device's local data is stale, wrong, or missing \u2014 e.g. after clearing browser storage or setting up on a new device. Anything on this device not yet backed up will be lost.",
+      }),
       h("p", { style: { fontSize: 11, color: "#737373", margin: "10px 0 0" } },
         props.session
-          ? "This uploads a snapshot of everything on this device to your account. It doesn't change what the app reads from \u2014 that's still this device, exactly as before."
+          ? "Your data automatically backs up to your account as you use the app. Restore replaces what's on THIS device with your account's saved copy \u2014 useful after clearing browser storage or on a new device."
           : "Creating an account doesn't move any of your data yet \u2014 everything you see in the app still lives only on this device. Cloud sync is a separate step, coming next.")
     ),
 
