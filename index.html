@@ -2312,6 +2312,40 @@ function App() {
   function signOut() {
     return supabaseClient.auth.signOut();
   }
+  // Uploads a snapshot of everything currently on THIS device into the signed-in account's rows —
+  // purely additive. The app still reads from and writes to localStorage exactly as before; this
+  // doesn't change that. An explicit, deliberate action (never automatic), matching every other
+  // consequential action in this app — nothing about a real backup should ever happen silently.
+  function backupToSupabase() {
+    if (!session) return Promise.reject(new Error("Not signed in"));
+    const userId = session.user.id;
+    const profileUpsert = supabaseClient.from("profiles").upsert({
+      id: userId,
+      active_program: data.activeProgram,
+      liked_foods: data.likedFoods,
+      custom_foods: data.customFoods,
+      custom_program_config: data.customProgramConfig,
+      supplement_list: data.supplementList,
+      rest_timer_settings: data.restTimerSettings,
+      push_settings: data.pushSettings,
+      reminder_times: data.reminderTimes,
+      shared_exercise_state: data.sharedExerciseState,
+      shared_rir_mode_enabled: data.sharedRirModeEnabled,
+      ui_prefs: data.uiPrefs,
+    });
+    const programUpserts = ["cutting", "cruise", "hypertrophy", "custom"].map(function (key) {
+      return supabaseClient.from("program_states").upsert(
+        { user_id: userId, program_key: key, state: data.programs[key] },
+        { onConflict: "user_id,program_key" }
+      );
+    });
+    return Promise.all([profileUpsert].concat(programUpserts)).then(function (results) {
+      const failed = results.find(function (r) { return r.error; });
+      if (failed) { showToast("Backup failed \u2014 try again"); throw failed.error; }
+      showToast("Backed up to your account");
+      return true;
+    });
+  }
 
   // ---- Withings ----
   const [withingsStatus, setWithingsStatus] = useState(null); // null = not yet checked; {connected, latest}
@@ -3337,6 +3371,7 @@ function App() {
               isSharedProgram: isSharedProgram, activeProgramLabel: def.label, rirModeEnabled: rirModeEnabled, rirModePendingEnable: rirModePendingEnable, toggleRirMode: toggleRirMode,
               withingsStatus: withingsStatus, connectWithings: connectWithings, disconnectWithings: disconnectWithings,
               session: session, authChecked: authChecked, signUpWithEmail: signUpWithEmail, signInWithEmail: signInWithEmail, signOut: signOut,
+              backupToSupabase: backupToSupabase,
               applyWithingsWeighIn: applyWithingsWeighIn, applyWithingsMilestone: applyWithingsMilestone,
               showEditProgramSettings: showEditProgramSettings, setShowEditProgramSettings: setShowEditProgramSettings,
               resetCustomSetup: resetCustomSetup,
@@ -4982,6 +5017,22 @@ function AccountAuthPanel(props) {
   );
 }
 
+// Self-contained "back up now" button — its own loading state so a slow connection can't be
+// mistaken for a silent no-op, and a confirm() gate since this is a real, deliberate action
+// (uploading everything currently on this device to the account), not something to trigger by
+// accident with a stray tap.
+function BackupToCloudButton(props) {
+  const [loading, setLoading] = useState(false);
+  return h("button", {
+    className: "ex-action-btn", style: { width: "100%", marginTop: 10 }, disabled: loading,
+    onClick: function () {
+      if (!window.confirm("Upload everything currently on this device to your account? This doesn't change how the app works right now — it's a backup, not a switch to cloud storage.")) return;
+      setLoading(true);
+      props.onBackup().finally(function () { setLoading(false); });
+    },
+  }, loading ? "Backing up\u2026" : "Back up to cloud now");
+}
+
 function SettingsRow(props) {
   return h("div", { style: Object.assign({ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #262626" }, props.style || {}) }, props.children);
 }
@@ -5014,8 +5065,11 @@ function SettingsTab(props) {
         session: props.session, authChecked: props.authChecked,
         signUpWithEmail: props.signUpWithEmail, signInWithEmail: props.signInWithEmail, signOut: props.signOut,
       }),
+      props.session && h(BackupToCloudButton, { onBackup: props.backupToSupabase }),
       h("p", { style: { fontSize: 11, color: "#737373", margin: "10px 0 0" } },
-        "This creates your account, but doesn't move any of your data yet \u2014 everything you see in the app still lives only on this device, exactly as before. Cloud sync is a separate step, coming next.")
+        props.session
+          ? "This uploads a snapshot of everything on this device to your account. It doesn't change what the app reads from \u2014 that's still this device, exactly as before."
+          : "Creating an account doesn't move any of your data yet \u2014 everything you see in the app still lives only on this device. Cloud sync is a separate step, coming next.")
     ),
 
     // ---- Reminders — master switch owns the subscription; the three category flags just decide
