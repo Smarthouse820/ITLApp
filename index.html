@@ -2376,7 +2376,7 @@ function formatRelativeTime(date) {
 }
 
 function App() {
-  const APP_VERSION = "2026-07-24T21:40:00";
+  const APP_VERSION = "2026-07-24T21:55:00";
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useEffect(function () {
     function checkVersion() {
@@ -2884,7 +2884,13 @@ function App() {
   }, []);
 
   function setActiveProgram(id) {
-    setNutritionViewWeek(null); setGroceryViewWeek(null); setCustomPlan(null); setExpanded({});
+    // setCustomPlan(null) used to be called here too. It was the state setter for the OLD separate
+    // Food Plan tab, which this file merged into Nutrition's Customize section — the state went
+    // away, the call didn't. Since it was a bare identifier rather than a property access, it threw
+    // a ReferenceError and aborted this function BEFORE save() ran, so every attempt to switch
+    // programs silently failed to persist. It looked like the case-study restriction working as
+    // intended, which is why it survived this long.
+    setNutritionViewWeek(null); setGroceryViewWeek(null); setExpanded({});
     save(Object.assign({}, data, { activeProgram: id }));
   }
 
