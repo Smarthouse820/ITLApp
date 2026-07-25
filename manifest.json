@@ -1,7 +1,7 @@
 {
   "name": "In The Lab Fitness",
   "short_name": "ITL Fitness",
-  "description": "Case study version — Custom program only. Workout, nutrition, and milestone tracker.",
+  "description": "Custom program only. Workout, nutrition, and milestone tracker.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
