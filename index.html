@@ -351,36 +351,36 @@ const TRAINING_DAY_ORDER = ["Monday", "Tuesday", "Thursday", "Friday", "Saturday
 
 const MEALS_CUTTING = {
   1: [
-    { id: "m1", time: "4:00 AM", name: "Meal 1", food: "1½ scoops whey + ½ cup dry oats + 7g peanut butter", cal: 329, p: 45, c: 25, f: 6 },
+    { id: "m1", time: "4:00 AM", name: "Meal 1", food: "1½ scoops whey + ½ cup dry oats + 7g peanut butter", items: [{ name: "Whey isolate", grams: 49.5 }, { name: "Oats (dry)", grams: 36 }, { name: "Peanut butter", grams: 7 }], cal: 329, p: 45, c: 25, f: 6 },
     { id: "iw", time: "5:45–7:00 AM", name: "Intra-Workout", food: "40g protein isolate + ½ scoop Cluster Dextrin + electrolytes", cal: 220, p: 40, c: 15, f: 0.5 },
-    { id: "m2", time: "7:30 AM", name: "Meal 2", food: "6.8oz chicken breast + 153g banana", cal: 445, p: 61, c: 35, f: 7 },
-    { id: "m3", time: "12:00 PM", name: "Meal 3", food: "6.7oz chicken breast + 105g brown rice + 100g broccoli + 3g peanut butter", cal: 498, p: 65, c: 35, f: 10 },
+    { id: "m2", time: "7:30 AM", name: "Meal 2", food: "6.8oz chicken breast + 153g banana", items: [{ name: "Chicken breast", grams: 192.8 }, { name: "Banana", grams: 153 }, { name: "Peanut butter", grams: 0 }], cal: 445, p: 61, c: 35, f: 7 },
+    { id: "m3", time: "12:00 PM", name: "Meal 3", food: "6.7oz chicken breast + 105g brown rice + 100g broccoli + 3g peanut butter", items: [{ name: "Chicken breast", grams: 189.9 }, { name: "Brown rice", grams: 105 }, { name: "Peanut butter", grams: 3 }, { name: "Broccoli", grams: 100 }], cal: 498, p: 65, c: 35, f: 10 },
     { id: "snack", time: "1:30 PM", name: "Snack", food: "1 SimplyFuel protein ball", cal: 95, p: 4, c: 12, f: 4.5 },
-    { id: "m4", time: "3:00 PM", name: "Meal 4", food: "7.9oz lean beef (93/7) + 64g low-carb tortilla + 39g peanut butter + 1 scoop whey protein", cal: 767, p: 91, c: 26, f: 42 },
+    { id: "m4", time: "3:00 PM", name: "Meal 4", food: "7.9oz lean beef (93/7) + 64g low-carb tortilla + 39g peanut butter + 1 scoop whey protein", items: [{ name: "Lean beef (93/7)", grams: 224.0 }, { name: "Low-carb tortilla", grams: 64 }, { name: "Peanut butter", grams: 39 }, { name: "Whey isolate", grams: 33 }], cal: 767, p: 91, c: 26, f: 42 },
   ],
   2: [
-    { id: "m1", time: "4:00 AM", name: "Meal 1", food: "1½ scoops whey + 28g dry Cream of Rice + 12g peanut butter", cal: 332, p: 45, c: 25, f: 6 },
+    { id: "m1", time: "4:00 AM", name: "Meal 1", food: "1½ scoops whey + 28g dry Cream of Rice + 12g peanut butter", items: [{ name: "Whey isolate", grams: 49.5 }, { name: "Creamy Rice (dry)", grams: 28 }, { name: "Peanut butter", grams: 12 }], cal: 332, p: 45, c: 25, f: 6 },
     { id: "iw", time: "5:45–7:00 AM", name: "Intra-Workout", food: "40g protein isolate + ½ scoop Cluster Dextrin + electrolytes", cal: 220, p: 40, c: 15, f: 0.5 },
-    { id: "m2", time: "7:30 AM", name: "Meal 2", food: "6.1oz turkey breast + 145g banana + 8g peanut butter", cal: 406, p: 55, c: 35, f: 6 },
-    { id: "m3", time: "12:00 PM", name: "Meal 3", food: "7.2oz chicken breast + 133g cooked quinoa + 100g green beans", cal: 537, p: 71, c: 35, f: 11 },
+    { id: "m2", time: "7:30 AM", name: "Meal 2", food: "6.1oz turkey breast + 145g banana + 8g peanut butter", items: [{ name: "Turkey breast", grams: 172.9 }, { name: "Banana", grams: 145 }, { name: "Peanut butter", grams: 8 }], cal: 406, p: 55, c: 35, f: 6 },
+    { id: "m3", time: "12:00 PM", name: "Meal 3", food: "7.2oz chicken breast + 133g cooked quinoa + 100g green beans", items: [{ name: "Chicken breast", grams: 204.1 }, { name: "Quinoa", grams: 133 }, { name: "Peanut butter", grams: 0 }, { name: "Green beans", grams: 100 }], cal: 537, p: 71, c: 35, f: 11 },
     { id: "snack", time: "1:30 PM", name: "Snack", food: "1 SimplyFuel protein ball", cal: 95, p: 4, c: 12, f: 4.5 },
-    { id: "m4", time: "3:00 PM", name: "Meal 4", food: "7.9oz lean beef (93/7) + 64g low-carb tortilla + 39g peanut butter + 1 scoop whey protein", cal: 767, p: 91, c: 26, f: 42 },
+    { id: "m4", time: "3:00 PM", name: "Meal 4", food: "7.9oz lean beef (93/7) + 64g low-carb tortilla + 39g peanut butter + 1 scoop whey protein", items: [{ name: "Lean beef (93/7)", grams: 224.0 }, { name: "Low-carb tortilla", grams: 64 }, { name: "Peanut butter", grams: 39 }, { name: "Whey isolate", grams: 33 }], cal: 767, p: 91, c: 26, f: 42 },
   ],
   3: [
-    { id: "m1", time: "4:00 AM", name: "Meal 1", food: "12.2oz egg whites + ⅓ cup dry oats + 6g peanut butter", cal: 341, p: 45, c: 25, f: 6 },
+    { id: "m1", time: "4:00 AM", name: "Meal 1", food: "12.2oz egg whites + ⅓ cup dry oats + 6g peanut butter", items: [{ name: "Egg whites", grams: 345.9 }, { name: "Oats (dry)", grams: 24 }, { name: "Peanut butter", grams: 6 }], cal: 341, p: 45, c: 25, f: 6 },
     { id: "iw", time: "5:45–7:00 AM", name: "Intra-Workout", food: "40g protein isolate + ½ scoop Cluster Dextrin + electrolytes", cal: 220, p: 40, c: 15, f: 0.5 },
-    { id: "m2", time: "7:30 AM", name: "Meal 2", food: "5.9oz turkey breast + 94g white rice + 8g peanut butter + 50g berries", cal: 424, p: 55, c: 35, f: 6 },
-    { id: "m3", time: "12:00 PM", name: "Meal 3", food: "7oz chicken breast + 89g white rice + 2g olive oil + 100g carrots", cal: 508, p: 65, c: 35, f: 10 },
+    { id: "m2", time: "7:30 AM", name: "Meal 2", food: "5.9oz turkey breast + 94g white rice + 8g peanut butter + 50g berries", items: [{ name: "Turkey breast", grams: 167.3 }, { name: "White rice", grams: 94 }, { name: "Peanut butter", grams: 8 }, { name: "Berries (mixed)", grams: 50 }], cal: 424, p: 55, c: 35, f: 6 },
+    { id: "m3", time: "12:00 PM", name: "Meal 3", food: "7oz chicken breast + 89g white rice + 2g olive oil + 100g carrots", items: [{ name: "Chicken breast", grams: 198.4 }, { name: "White rice", grams: 89 }, { name: "Olive oil", grams: 2 }, { name: "Carrots", grams: 100 }], cal: 508, p: 65, c: 35, f: 10 },
     { id: "snack", time: "1:30 PM", name: "Snack", food: "1 SimplyFuel protein ball", cal: 95, p: 4, c: 12, f: 4.5 },
-    { id: "m4", time: "3:00 PM", name: "Meal 4", food: "9.5oz pork tenderloin + 29g low-carb tortilla + 65g peanut butter", cal: 802, p: 91, c: 21, f: 43 },
+    { id: "m4", time: "3:00 PM", name: "Meal 4", food: "9.5oz pork tenderloin + 29g low-carb tortilla + 65g peanut butter", items: [{ name: "Pork tenderloin", grams: 269.3 }, { name: "Low-carb tortilla", grams: 29 }, { name: "Peanut butter", grams: 65 }], cal: 802, p: 91, c: 21, f: 43 },
   ],
   4: [
-    { id: "m1", time: "4:00 AM", name: "Meal 1", food: "12.4oz egg whites + 31g Ezekiel bread + 9g peanut butter + 50g berries", cal: 339, p: 45, c: 25, f: 6 },
+    { id: "m1", time: "4:00 AM", name: "Meal 1", food: "12.4oz egg whites + 31g Ezekiel bread + 9g peanut butter + 50g berries", items: [{ name: "Egg whites", grams: 351.5 }, { name: "Ezekiel bread", grams: 31 }, { name: "Peanut butter", grams: 9 }, { name: "Berries (mixed)", grams: 50 }], cal: 339, p: 45, c: 25, f: 6 },
     { id: "iw", time: "5:45–7:00 AM", name: "Intra-Workout", food: "40g protein isolate + ½ scoop Cluster Dextrin + electrolytes", cal: 220, p: 40, c: 15, f: 0.5 },
-    { id: "m2", time: "7:30 AM", name: "Meal 2", food: "6.6oz chicken breast + 126g white rice", cal: 467, p: 61, c: 35, f: 7 },
-    { id: "m3", time: "12:00 PM", name: "Meal 3", food: "8.4oz pork tenderloin + 125g potato + 100g carrots", cal: 501, p: 65, c: 35, f: 10 },
+    { id: "m2", time: "7:30 AM", name: "Meal 2", food: "6.6oz chicken breast + 126g white rice", items: [{ name: "Chicken breast", grams: 187.1 }, { name: "White rice", grams: 126 }, { name: "Peanut butter", grams: 0 }], cal: 467, p: 61, c: 35, f: 7 },
+    { id: "m3", time: "12:00 PM", name: "Meal 3", food: "8.4oz pork tenderloin + 125g potato + 100g carrots", items: [{ name: "Pork tenderloin", grams: 238.1 }, { name: "Potato", grams: 125 }, { name: "Peanut butter", grams: 0 }, { name: "Carrots", grams: 100 }], cal: 501, p: 65, c: 35, f: 10 },
     { id: "snack", time: "1:30 PM", name: "Snack", food: "1 SimplyFuel protein ball", cal: 95, p: 4, c: 12, f: 4.5 },
-    { id: "m4", time: "3:00 PM", name: "Meal 4", food: "8.2oz ground turkey (93/7) + 54g low-carb tortilla + 54.5g peanut butter + 1 scoop whey protein", cal: 779, p: 92, c: 26, f: 43 },
+    { id: "m4", time: "3:00 PM", name: "Meal 4", food: "8.2oz ground turkey (93/7) + 54g low-carb tortilla + 54.5g peanut butter + 1 scoop whey protein", items: [{ name: "Ground turkey (93/7)", grams: 232.5 }, { name: "Low-carb tortilla", grams: 54 }, { name: "Peanut butter", grams: 54.5 }, { name: "Whey isolate", grams: 33 }], cal: 779, p: 92, c: 26, f: 43 },
   ],
 };
 
@@ -1096,6 +1096,16 @@ const FOOD_DB = [
   { name: "Cottage cheese (2%)", cat: "protein", cal: 90, p: 11, c: 3.4, f: 2.5, micro: { calcium: 91, selenium: 10, zinc: 0.5 } },
   { name: "Greek yogurt (0%)", cat: "protein", cal: 59, p: 10, c: 3.6, f: 0.4, micro: { calcium: 110, zinc: 0.5 } },
   { name: "Greek yogurt (full fat)", cat: "protein", cal: 97, p: 9, c: 4, f: 5, micro: { calcium: 100, zinc: 0.5 } },
+  // ---- Foods specific to the built-in programs' meal plans ----
+  // Added when Cutting/Cruise/Hypertrophy meals were converted from prose to structured items.
+  // All four are transcribed from the actual product labels, not estimated.
+  // The tortilla is logged at NET carbs (19g total, 19g of it fiber, so 0 net) — a deliberate
+  // choice: it's how the product is designed to be counted. Note this shifts the daily carb
+  // total down by roughly 17g versus the paper plan, which counted them.
+  { name: "Whey isolate", cat: "protein", cal: 333.3, p: 75.8, c: 3, f: 3 },
+  { name: "Creamy Rice (dry)", cat: "carb", cal: 342.9, p: 5.7, c: 77.1, f: 0 },
+  { name: "Low-carb tortilla", cat: "carb", cal: 203.7, p: 13, c: 0, f: 9.3 },
+  { name: "Barebells protein bar", cat: "protein", cal: 363.6, p: 36.4, c: 34.5, f: 14.5 },
   { name: "Whey protein powder", cat: "protein", cal: 409, p: 83, c: 8, f: 5, micro: { calcium: 400 }, measureByScoop: true }, // ~25g protein per 30g scoop
   { name: "Deli turkey slices", cat: "protein", cal: 104, p: 17, c: 3, f: 2, micro: { selenium: 22, zinc: 1 } },
   { name: "Deli ham slices", cat: "protein", cal: 145, p: 21, c: 1.5, f: 6, micro: { selenium: 25, zinc: 1.8, iron: 0.8 } },
@@ -2455,7 +2465,7 @@ function programStateHasRealData(state) {
 }
 
 function App() {
-  const APP_VERSION = "2026-07-24T19:35:00";
+  const APP_VERSION = "2026-07-24T20:05:00";
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useEffect(function () {
     function checkVersion() {
@@ -4054,7 +4064,21 @@ function App() {
     const roleIdx = { protein: 0, carb: 1, fat: 2 }[role];
     const vegItem = items[3] || null;
     const vegFood = vegItem ? allFoods.filter(function (f) { return f.name === vegItem.name; })[0] : null;
-    const target = vegFood ? [slot.p - vegFood.p, slot.c - vegFood.c, slot.f - vegFood.f] : [slot.p, slot.c, slot.f];
+    // items[3] is a FIXED item whose macros come off the target before the other three are solved.
+    // It's usually a vegetable, but nothing requires that — Meal 4 uses it for a second protein
+    // source (a whey scoop alongside the beef), which is the only way a four-ingredient meal with
+    // two proteins fits a three-role solver.
+    //
+    // This previously subtracted vegFood's raw per-100g macros with no gram scaling. That was
+    // silently correct only because every vegetable in every plan happened to be exactly 100g —
+    // the moment items[3] holds 33g of whey isolate, it would remove 75.8g of protein from the
+    // target instead of 25g and the solve would be badly wrong. The rebalance path already scaled
+    // this correctly; the two are now consistent.
+    const target = vegFood
+      ? [slot.p - (vegFood.p * vegItem.grams) / 100,
+         slot.c - (vegFood.c * vegItem.grams) / 100,
+         slot.f - (vegFood.f * vegItem.grams) / 100]
+      : [slot.p, slot.c, slot.f];
 
     const currentFoods = [0, 1, 2].map(function (i) { return allFoods.filter(function (f) { return f.name === items[i].name; })[0]; });
     currentFoods[roleIdx] = newFood;
