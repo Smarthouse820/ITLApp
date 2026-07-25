@@ -2023,7 +2023,27 @@ function computePerformanceStall(exercisesDef, logsByWeek, uptoWeek, windowSize)
   return { stalledCount: stalled, consideredCount: considered, ratio: considered > 0 ? stalled / considered : 0 };
 }
 
-const STORAGE_KEY = "cutting-tracker-data-v2";
+// ---- Storage key scoping ----
+// localStorage is per-ORIGIN, not per-path. Production (inthelabfitness.com) and staging
+// (smarthouse820.github.io/ITLv…) are different origins today, so they're already separate — but
+// only because a custom domain is pointing where it should. If that domain were ever removed or
+// lapsed, production would fall back onto the same origin as staging and the two would silently
+// start sharing one set of data: real training history and throwaway test data in the same object,
+// last write wins, with the automatic backup then pushing whichever won up to whichever account
+// happened to be signed in.
+//
+// Renaming the key wouldn't help, since both deployments run the identical file and would rename in
+// lockstep. Scoping it to the PATH does, because that's the one thing that differs between them —
+// and it keeps the two deployments byte-identical, which is the whole point of having a staging
+// copy at all.
+//
+// Normalised to a directory ("/ITLv1/index.html" → "/ITLv1/") so the same deployment can't end up
+// with two different keys depending on whether the URL was typed with the filename or without.
+const DEPLOY_SCOPE = (typeof location !== "undefined" ? location.pathname : "/").replace(/\/[^/]*$/, "/");
+const STORAGE_KEY = "itl-app-data-v2::" + DEPLOY_SCOPE;
+// The unscoped key every previous build wrote to. Read once on first load after this ships, then
+// left alone — see loadData().
+const LEGACY_SHARED_KEY = "cutting-tracker-data-v2";
 function freshProgramState(exercises) {
   return {
     currentWeek: 1,
@@ -2185,6 +2205,16 @@ function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return normalizeV2(JSON.parse(raw));
+    // First load after key scoping shipped: adopt whatever this browser already had under the old
+    // unscoped key. Deliberately a COPY, not a move — the old key is left in place rather than
+    // deleted. Nothing writes to it from here on, so it can't cause a collision, and leaving it
+    // means a rollback to a previous build still finds the data instead of looking like a wiped
+    // install. It can be cleaned up in a later release once this has settled.
+    const legacy = localStorage.getItem(LEGACY_SHARED_KEY);
+    if (legacy) {
+      try { localStorage.setItem(STORAGE_KEY, legacy); } catch (e) { /* quota — read it anyway */ }
+      return normalizeV2(JSON.parse(legacy));
+    }
     const oldRaw = localStorage.getItem("cutting-tracker-data-v1");
     if (oldRaw) return migrateV1(JSON.parse(oldRaw));
     return makeDefaultData();
@@ -2229,12 +2259,28 @@ function urlB64ToUint8Array(base64String) {
 }
 
 // Anonymous, persistent device id — no login, generated once, kept locally.
+//
+// This is NOT just a local preference: it's the primary key for this browser's records in the
+// Worker's KV store, covering both the push subscription and the Withings OAuth tokens. Generating
+// a fresh one where an old one already exists is genuinely destructive — the previous KV record
+// stays behind, still valid, and the 15-minute cron keeps firing notifications at it forever with
+// no unsubscribe path, since the app no longer knows the old id. Withings would separately appear
+// disconnected, its tokens filed under an id nothing references anymore.
+//
+// So: scoped like the data key, but the existing unscoped value is CARRIED ACROSS rather than
+// regenerated. A browser that already had an id keeps it, and its Worker-side records stay intact.
+const PUSH_ID_KEY = "itl_push_id::" + DEPLOY_SCOPE;
+const LEGACY_PUSH_ID_KEY = "itl_push_id";
 function getOrCreatePushId() {
-  let id = localStorage.getItem("itl_push_id");
+  let id = localStorage.getItem(PUSH_ID_KEY);
+  if (!id) {
+    // Inherit before minting. This is the line that prevents the duplicate-notification problem.
+    id = localStorage.getItem(LEGACY_PUSH_ID_KEY);
+  }
   if (!id) {
     id = "id_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    localStorage.setItem("itl_push_id", id);
   }
+  localStorage.setItem(PUSH_ID_KEY, id);
   return id;
 }
 
@@ -2409,7 +2455,7 @@ function programStateHasRealData(state) {
 }
 
 function App() {
-  const APP_VERSION = "2026-07-24T19:15:00";
+  const APP_VERSION = "2026-07-24T19:35:00";
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useEffect(function () {
     function checkVersion() {
