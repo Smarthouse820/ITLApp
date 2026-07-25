@@ -2409,7 +2409,7 @@ function programStateHasRealData(state) {
 }
 
 function App() {
-  const APP_VERSION = "2026-07-24T22:50:00";
+  const APP_VERSION = "2026-07-24T19:15:00";
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useEffect(function () {
     function checkVersion() {
@@ -5044,6 +5044,28 @@ function SetLogger(props) {
   );
 }
 
+// Barcodes carry a check digit — the last one is a checksum over the others, so a single mistyped
+// or transposed digit is detectable locally without asking the network. Worth doing because the
+// manual path is the ONLY path on iPhone (see supportsDetector below), and "no product found" after
+// a slow round-trip is a miserable way to learn you fat-fingered a 13-digit number.
+//
+// Covers EAN-8, UPC-A (12), EAN-13, and GTIN-14. Weighting runs 3,1,3,1… from the rightmost
+// non-check digit, which is why the array is reversed first.
+function gtinCheckDigitValid(code) {
+  if (!/^(\d{8}|\d{12}|\d{13}|\d{14})$/.test(code)) return false;
+  const digits = code.split("").map(Number);
+  const check = digits.pop();
+  digits.reverse();
+  let sum = 0;
+  for (let i = 0; i < digits.length; i++) sum += digits[i] * (i % 2 === 0 ? 3 : 1);
+  return ((10 - (sum % 10)) % 10) === check;
+}
+// Length alone tells us whether a lookup is even worth attempting, separately from whether the
+// checksum passes — a real barcode is always one of these lengths.
+function isPlausibleBarcodeLength(code) {
+  return /^(\d{8}|\d{12}|\d{13}|\d{14})$/.test(code);
+}
+
 function lookupBarcode(barcode) {
   const url = "https://world.openfoodfacts.org/api/v2/product/" + encodeURIComponent(barcode) + ".json?fields=product_name,brands,nutriments";
   return fetch(url, { headers: { "User-Agent": "CuttingTracker/1.0 (personal fitness app)" } })
@@ -5153,25 +5175,67 @@ function BarcodeLogger(props) {
   }
 
   return h("div", { className: "barcode-box" },
-    mode === "idle" && h("div", { className: "barcode-idle-row" },
-      h("button", { className: "ex-action-btn", onClick: startScan }, "📷 Scan Barcode"),
-      h("button", { className: "ex-action-btn", onClick: function () { setMode("manual"); } }, "Type Barcode #")
-    ),
+    // On iPhone, `BarcodeDetector` doesn't exist, so camera scanning genuinely cannot work here —
+    // and offering the button anyway was actively misleading: tapping it dropped straight to manual
+    // entry, which reads as "the camera broke" rather than "this browser can't do this". Better to
+    // show only the path that works and say why the other is missing.
+    mode === "idle" && (supportsDetector
+      ? h("div", { className: "barcode-idle-row" },
+          h("button", { className: "ex-action-btn", onClick: startScan }, "\ud83d\udcf7 Scan Barcode"),
+          h("button", { className: "ex-action-btn", onClick: function () { setMode("manual"); } }, "Type Barcode #")
+        )
+      : h("div", null,
+          h("button", {
+            className: "ex-action-btn", style: { width: "100%" },
+            onClick: function () { setMode("manual"); },
+          }, "Enter Barcode Number"),
+          h("p", { style: { fontSize: 11, color: "#737373", margin: "6px 0 0", lineHeight: 1.4 } },
+            "Camera scanning isn\u2019t supported in this browser. Type the number printed under the barcode instead \u2014 it works the same way.")
+        )),
     mode === "scanning" && h("div", { className: "barcode-scan-area" },
       h("video", { ref: videoRef, className: "barcode-video", muted: true, playsInline: true }),
       h("p", null, "Point the camera at the barcode…"),
       h("button", { className: "ex-action-btn", onClick: cancel }, "Cancel")
     ),
-    mode === "manual" && h("div", { className: "barcode-manual-row" },
-      h("input", {
-        type: "text", inputMode: "numeric", value: manualCode, placeholder: "e.g. 3017624010701",
-        onChange: function (e) { setManualCode(e.target.value); }, className: "search-input",
-      }),
-      h("div", { style: { display: "flex", gap: 8 } },
-        h("button", { className: "swap-save-btn", style: { flex: 1 }, onClick: function () { if (manualCode) handleBarcode(manualCode); } }, "Look Up"),
-        h("button", { className: "ex-action-btn", onClick: cancel }, "Cancel")
-      )
-    ),
+    mode === "manual" && (function () {
+      // Strip anything that isn't a digit rather than rejecting it. People read barcodes aloud, copy
+      // them with spaces, or type the hyphens printed on some packaging — none of that is an error
+      // worth complaining about, and silently normalising is kinder than a validation message.
+      const clean = manualCode.replace(/\D/g, "");
+      const plausible = isPlausibleBarcodeLength(clean);
+      const checksumOk = plausible && gtinCheckDigitValid(clean);
+      return h("div", { className: "barcode-manual-row" },
+        h("input", {
+          type: "text", inputMode: "numeric", pattern: "[0-9]*",
+          value: clean, placeholder: "e.g. 3017624010701",
+          autoComplete: "off", autoCorrect: "off", spellCheck: false,
+          onChange: function (e) { setManualCode(e.target.value.replace(/\D/g, "").slice(0, 14)); },
+          // Enter submits, so the number pad's go key works instead of forcing a reach for the
+          // button — this is a 13-digit number being typed on a phone, one-handed, in a shop.
+          onKeyDown: function (e) { if (e.key === "Enter" && plausible) handleBarcode(clean); },
+          className: "search-input",
+          style: { letterSpacing: "0.08em", fontVariantNumeric: "tabular-nums" },
+        }),
+        // A live count, because the single most common failure is stopping a digit short. Saying
+        // "12 of 13" while they type is far more useful than "no product found" thirty seconds later.
+        h("p", { style: { fontSize: 11, margin: "6px 0 0", lineHeight: 1.4, color: !clean ? "#737373" : checksumOk ? "#4eba6f" : plausible ? "#f0b429" : "#737373" } },
+          !clean
+            ? "Most barcodes are 12 or 13 digits, printed under the bars."
+            : checksumOk
+            ? "\u2713 Looks like a valid barcode."
+            : plausible
+            ? "\u26a0 The digits don\u2019t add up \u2014 worth double-checking for a typo. You can still look it up."
+            : clean.length + " digit" + (clean.length === 1 ? "" : "s") + " \u2014 keep going (barcodes are 8, 12, or 13 digits)."),
+        h("div", { style: { display: "flex", gap: 8, marginTop: 8 } },
+          h("button", {
+            className: "swap-save-btn", style: { flex: 1, opacity: plausible ? 1 : 0.5 },
+            disabled: !plausible,
+            onClick: function () { if (plausible) handleBarcode(clean); },
+          }, checksumOk || !plausible ? "Look Up" : "Look Up Anyway"),
+          h("button", { className: "ex-action-btn", onClick: cancel }, "Cancel")
+        )
+      );
+    })(),
     mode === "loading" && h("p", { className: "history-empty" }, "Looking up product…"),
     mode === "error" && h("div", { className: "plan-error" },
       errorMsg, " ",
