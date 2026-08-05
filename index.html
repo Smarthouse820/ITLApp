@@ -3988,7 +3988,7 @@ function programStateHasRealData(state) {
 // The build currently running. Surfaced in Settings -> Account, because "is the deploy actually
 // live?" has been the real answer to several apparent bugs, and inferring it from behaviour is slow
 // and error-prone. Compared against version.json by the update check below.
-const APP_VERSION = "2026-08-04T20:35:11";
+const APP_VERSION = "2026-08-05T07:59:03";
 
 // Signing out has to be unconditional, because every failure mode here ends the same way: a person
 // tapping a button that does nothing.
@@ -4776,6 +4776,11 @@ function App() {
   function setClientAutoregulation(clientId, granted, effectiveWeek, reason) {
     return supabaseClient.from("coach_assignments").insert({
       kind: "autoregulation", coach_id: userId, client_id: clientId,
+      // program_key is NOT NULL on coach_assignments (found 2026-08-05 when the live toggle's
+      // insert 400'd). "account" is a deliberate sentinel: the grant is per-CLIENT, not
+      // per-program, and a key no program uses keeps these rows out of my_pending_assignments'
+      // program-filtered apply pipeline — they are state, not a prescription to apply.
+      program_key: "account",
       effective_week: effectiveWeek, status: "approved",
       payload: { granted: !!granted, reason: reason || null },
     }).then(function (r) {
