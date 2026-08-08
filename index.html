@@ -3988,7 +3988,7 @@ function programStateHasRealData(state) {
 // The build currently running. Surfaced in Settings -> Account, because "is the deploy actually
 // live?" has been the real answer to several apparent bugs, and inferring it from behaviour is slow
 // and error-prone. Compared against version.json by the update check below.
-const APP_VERSION = "2026-08-08T05:02:19";
+const APP_VERSION = "2026-08-08T05:37:01";
 
 // Signing out has to be unconditional, because every failure mode here ends the same way: a person
 // tapping a button that does nothing.
@@ -6953,6 +6953,13 @@ function App() {
                 myClients: myClients, pendingInvites: pendingInvites, canCoach: amICoach,
                 inviteClient: inviteClient, respondToInvite: respondToInvite,
                 endCoaching: endCoaching, busy: coachingBusy,
+                // THE 2026-08-08 GREY-BUTTON BUG: this Clients-tab mount is the one people
+                // actually use, and it never received the autoregulation or away props — only
+                // the settings mount did. The card rendered its buttons regardless (their labels
+                // read defensively), so the miss was invisible until a press did nothing. When a
+                // component has TWO mounts, a new prop goes to BOTH or the gap hides exactly here.
+                oooWindows: oooWindows, postOutOfOffice: postOutOfOffice, cancelOutOfOffice: cancelOutOfOffice,
+                autoregGrantedTo: autoregGrantedTo, setClientAutoregulation: setClientAutoregulation,
                 clientRequests: clientRequests, myRequests: myRequests,
                 approveRequest: approveRequest, rejectRequest: rejectRequest,
               })),
@@ -10047,6 +10054,7 @@ function CoachingPanel(props) {
   const [oooStart, setOooStart] = useState("");
   const [oooEnd, setOooEnd] = useState("");
   const [oooMsg, setOooMsg] = useState("");
+  const [armedAutoToggle, setArmedAutoToggle] = useState(null);
   function clientEmailOf(id) {
     const m = (props.myClients || []).filter(function (x) { return x.client_id === id; })[0];
     return m ? personLabel(m.display_name, m.email) : "a client";
@@ -10289,23 +10297,27 @@ function CoachingPanel(props) {
                       : { fontSize: 11, padding: "4px 8px" },
                     disabled: props.busy,
                     onClick: function () {
+                      // TWO-PRESS ARM, NOT window.confirm. Installed PWAs (Android standalone
+                      // especially) can suppress native dialogs entirely — confirm() returns
+                      // false with nothing shown, and the press dies invisibly. That was the
+                      // 2026-08-08 grey-button mystery's second half. First press arms the
+                      // button with the week stated on it; second press within 8s executes;
+                      // anything else disarms. No native dialogs, nothing suppressible.
                       const on = !(props.autoregGrantedTo || {})[c.client_id];
                       const wk = c.current_week != null ? c.current_week : 1;
-                      // The NEXT canonical deload week (multiples of phase+1: 5, 10, 15...) —
-                      // landing ON it, matching where the band backfill and the review both
-                      // happen. If the client has inserted extra deloads this is approximate;
-                      // the coach's card cannot see those, and a grant activating a week early
-                      // only ever ADDS progression, never rewrites anything.
                       const cycle = RIR_PHASE_LENGTH + 1;
                       const boundary = wk + ((cycle - (wk % cycle)) % cycle);
-                      const label = personLabel(c.display_name, c.email);
-                      if (window.confirm((on
-                        ? "Let the app fully auto-progress " + label + " from their next deload (week " + boundary + ")? Weekly weights and reps already progress automatically for everyone. This additionally lets the app act on its own suggestions without waiting for you: adding a set where reps have topped out, applying its volume recommendations, and stepping bodyweight work up to harder variants. Your prescriptions are never overwritten, and their own edit requests still queue for you."
-                        : "Stop auto-progression for " + label + " from week " + boundary + "? Anything already applied stays \u2014 nothing is removed."))) {
-                        props.setClientAutoregulation(c.client_id, on, boundary, null);
+                      const armed = armedAutoToggle && armedAutoToggle.clientId === c.client_id && (Date.now() - armedAutoToggle.ts) < 8000;
+                      if (!armed) {
+                        setArmedAutoToggle({ clientId: c.client_id, on: on, boundary: boundary, ts: Date.now() });
+                        return;
                       }
+                      setArmedAutoToggle(null);
+                      props.setClientAutoregulation(c.client_id, armedAutoToggle.on, armedAutoToggle.boundary, null);
                     },
-                  }, (props.autoregGrantedTo || {})[c.client_id] ? "Auto-progress: on" : "Auto-progress: off"),
+                  }, (armedAutoToggle && armedAutoToggle.clientId === c.client_id && (Date.now() - armedAutoToggle.ts) < 8000)
+                     ? ("Press again \u2014 " + (armedAutoToggle.on ? "ON" : "OFF") + " from wk " + armedAutoToggle.boundary)
+                     : (props.autoregGrantedTo || {})[c.client_id] ? "Auto-progress: on" : "Auto-progress: off"),
                   h("button", {
                     className: "ex-action-btn", style: { borderColor: "#f87171", color: "#f87171", fontSize: 11, padding: "4px 8px" },
                     disabled: props.busy,
