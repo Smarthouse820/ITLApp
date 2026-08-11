@@ -3988,7 +3988,7 @@ function programStateHasRealData(state) {
 // The build currently running. Surfaced in Settings -> Account, because "is the deploy actually
 // live?" has been the real answer to several apparent bugs, and inferring it from behaviour is slow
 // and error-prone. Compared against version.json by the update check below.
-const APP_VERSION = "2026-08-08T05:37:01";
+const APP_VERSION = "2026-08-10T11:02:36";
 
 // Signing out has to be unconditional, because every failure mode here ends the same way: a person
 // tapping a button that does nothing.
@@ -5809,7 +5809,7 @@ function App() {
   }
 
   function resetAll() {
-    if (!window.confirm("Reset all progress for the " + def.label + " program? This clears logs, week count, and weights back to Week 1 defaults. Your liked/scanned foods and other programs aren't affected.")) return;
+    if (!window.confirm("Reset all progress for the " + def.label + " program? This clears logs, week count, and weights back to Week 1 defaults, and restarts the meal rotation at Wk 1 from this week. Your liked/scanned foods and other programs aren't affected.")) return;
     saveProgram(freshProgramState(def.exercises));
   }
 
@@ -7439,6 +7439,16 @@ function WorkoutsTab(props) {
                       computeTargetRIRForWeek(computePhaseWeeks(props.data.currentWeek, props.data.extraDeloadWeeks).length, RIR_PHASE_LENGTH))
                   : ex.isFailure ? ("to failure" + (state.repsTarget != null ? " (last: " + state.repsTarget + ")" : ""))
                   : range.unbanded ? String(state.repsTarget)
+                  // RIR mode on but no stored per-exercise target yet (nothing computed until the
+                  // first week completes): speak the decided language anyway. The schedule's RIR
+                  // for this phase week is the INSTRUCTION; the band is demoted to an expectation
+                  // ("a number displayed becomes the target" — the whole rep-band argument).
+                  // Cards converge on per-exercise targets as completions compute them; until
+                  // then no card presents the range as the thing to hit.
+                  : props.rirModeEnabled ?
+                    ((function (r) { return r === 0 ? "to failure" : "leave ~" + r + " in reserve"; })(
+                      computeTargetRIRForWeek(computePhaseWeeks(props.data.currentWeek, props.data.extraDeloadWeeks).length, RIR_PHASE_LENGTH))
+                     + " · expect " + range.repLow + "–" + range.repHigh)
                   : state.repsTarget + " (range " + range.repLow + "–" + range.repHigh + ")"),
             sessionAdjustmentDirection === "down" && h("span", { style: { color: "#f0b429" } }, " · reduced this session after a big rep miss"),
             sessionAdjustmentDirection === "up" && h("span", { style: { color: "#4eba6f" } }, " · increased this session after beating the top of your range"),
@@ -11134,7 +11144,8 @@ function GroceryTab(props) {
   return h("div", null,
     h("h2", { className: "section-title" }, "Grocery List"),
     h("p", { className: "section-sub" },
-      "Rotation Week " + props.displayWeek + " of 4 · " + checkedCount + "/" + props.list.length + " checked" + (isPreview ? " · Preview" : "") + (props.hasOverride ? " · From custom plan" : "")),
+      "Meal rotation Wk " + props.displayWeek + " of 4 · " + checkedCount + "/" + props.list.length + " checked" + (isPreview ? " · Preview" : "") + (props.hasOverride ? " · From custom plan" : "")),
+      h("p", { style: { fontSize: 11, color: "#a3a3a3", margin: "2px 0 8px" } }, "Rotates every calendar week for meal variety — separate from your training week. Resetting the program restarts it at Wk 1."),
     h(WeekSelector, { viewWeek: props.viewWeek, setViewWeek: props.setViewWeek, rotationWeek: props.rotationWeek }),
     isPreview && h("div", { className: "preview-banner" },
       "Previewing Week " + props.viewWeek + "'s list — useful for shopping ahead. Checks here are saved separately per week."),
